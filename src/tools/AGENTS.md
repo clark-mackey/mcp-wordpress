@@ -55,8 +55,10 @@ versions, not the shims.
 **Plugin REST routes**: tools for a plugin's own REST namespace (e.g. `seopress/` → `/seopress/v1`) pass an absolute URL
 built from `client.getSiteUrl()`, because relative endpoints are prefixed with `/wp-json/wp/v2`. Writes are verified by
 reading back through `client.requestWithMetadata()`, which bypasses the GET cache, and a mismatch is a tool error —
-these plugin routes report success even when they store nothing or a sanitized value. Absolute URLs lose their query
-string in `WordPressClient`, so list queries use relative `/wp/v2` endpoints.
+these plugin routes report success even when they store nothing or a sanitized value. Some page caches (LiteSpeed Cache)
+store plugin REST responses to Application Password requests as anonymous, so reads send `Cache-Control: no-cache` and a
+response with a cache-hit header (`x-litespeed-cache`, `x-cache`, `cf-cache-status`) is an error, never data. Absolute
+URLs lose their query string in `WordPressClient`, so list queries use relative `/wp/v2` endpoints.
 
 **SEOPress** (`seopress/`): per-item tools use the `/seopress/v1/posts/{id}/*` field routes (they work on SEOPress
 releases that do not expose its meta in `/wp/v2`); robots/redirect checkboxes read back as `"yes"`/`true`, and fields

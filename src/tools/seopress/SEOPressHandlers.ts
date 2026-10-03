@@ -80,9 +80,27 @@ const NON_CONTENT_POST_TYPES = new Set([
 const seopressUrl = (client: WordPressClient, path: string): string =>
   `${client.getSiteUrl()}/wp-json/seopress/v1/${path}`;
 
-/** GET without the client cache, so a read-back after a write shows what WordPress stored. */
+const PAGE_CACHE_HEADERS = ["x-litespeed-cache", "x-cache", "x-proxy-cache", "cf-cache-status"];
+
+/**
+ * GET without the client cache, so a read-back after a write shows what WordPress stored.
+ * Some page caches (LiteSpeed Cache) store REST responses to Application Password requests
+ * as if anonymous; a cached response shows stale values, so it is an error, never data.
+ */
 async function read<T>(client: WordPressClient, path: string): Promise<T> {
-  const response = await client.requestWithMetadata<T>("GET", seopressUrl(client, path));
+  const response = await client.requestWithMetadata<T>("GET", seopressUrl(client, path), null, {
+    headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+  });
+  const hit = PAGE_CACHE_HEADERS.find((name) => /^hit/i.test(response.headers?.[name] ?? ""));
+  if (hit) {
+    throw new Error(
+      `The site's page cache answered the SEOPress request for ${path} (${hit}: ${response.headers[hit]}), so ` +
+        "the values WordPress stored cannot be read or verified (a write already sent may have been saved). " +
+        "Purge the page cache and " +
+        "exclude logged-in REST API responses from it: a cached response to an authenticated request is also " +
+        "served to anonymous visitors.",
+    );
+  }
   return response.data;
 }
 

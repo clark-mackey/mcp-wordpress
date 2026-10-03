@@ -48,6 +48,8 @@ function fakeSEOPress() {
     // Keys SEOPress drops when saving, to simulate a sanitizer or a plugin interfering.
     dropOnSave: new Set(),
     listItems: { pages: [], posts: [] },
+    // Simulates a page cache (LiteSpeed) answering reads with a stored response.
+    cachedReads: false,
   };
   const metaOf = (id) => {
     if (!meta.has(id)) throw new WordPressAPIError("Sorry, you are not allowed to do that.", 403);
@@ -115,7 +117,10 @@ function fakeSEOPress() {
   const client = {
     getSiteUrl: () => SITE,
     requestWithMetadata: vi.fn(async (method, url) => {
-      if (url.startsWith(API)) return { data: get(url.slice(API.length)), status: 200, headers: {} };
+      if (url.startsWith(API)) {
+        const headers = state.cachedReads ? { "x-litespeed-cache": "hit" } : {};
+        return { data: get(url.slice(API.length)), status: 200, headers };
+      }
       // Relative /wp/v2 listing: "<base>?status=...&page=N..."
       const [base, query] = url.split("?");
       const page = Number(new URLSearchParams(query).get("page"));
@@ -220,12 +225,28 @@ describe("SEOPressTools", () => {
       await expect(run("wp_seopress_get_post_seo", { id: 42 })).rejects.toThrow("SEOPress REST route was not found");
     });
 
+    it("asks the page cache not to answer reads", async () => {
+      await run("wp_seopress_get_post_seo", { id: 42 });
+
+      expect(client.requestWithMetadata).toHaveBeenCalledWith("GET", `${API}posts/42/title-description-metas`, null, {
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+      });
+    });
+
     it("explains a permission denial", async () => {
       await expect(run("wp_seopress_get_post_seo", { id: 99 })).rejects.toThrow("not permitted");
     });
   });
 
   describe("wp_seopress_update_title_description", () => {
+    it("refuses to verify against a page-cached response", async () => {
+      state.cachedReads = true;
+
+      await expect(run("wp_seopress_update_title_description", { id: 42, title: "New" })).rejects.toThrow(
+        "page cache answered the SEOPress request",
+      );
+    });
+
     it("saves only the given field, verifies it, and reports the output", async () => {
       state.meta.get(42)._seopress_titles_desc = "Keep me";
 
