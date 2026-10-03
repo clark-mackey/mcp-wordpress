@@ -88,20 +88,24 @@ const PAGE_CACHE_HEADERS = ["x-litespeed-cache", "x-cache", "x-proxy-cache", "cf
  * as if anonymous; a cached response shows stale values, so it is an error, never data.
  */
 async function read<T>(client: WordPressClient, path: string): Promise<T> {
-  const response = await client.requestWithMetadata<T>("GET", seopressUrl(client, path), null, {
-    headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-  });
-  const hit = PAGE_CACHE_HEADERS.find((name) => /^hit/i.test(response.headers?.[name] ?? ""));
+  const response = await client.requestWithMetadata<T>("GET", seopressUrl(client, path), null, NO_CACHE);
+  assertNotPageCached(response.headers, path);
+  return response.data;
+}
+
+const NO_CACHE = { headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } };
+
+function assertNotPageCached(headers: Record<string, string> | undefined, path: string): void {
+  const hit = PAGE_CACHE_HEADERS.find((name) => /^hit/i.test(headers?.[name] ?? ""));
   if (hit) {
     throw new Error(
-      `The site's page cache answered the SEOPress request for ${path} (${hit}: ${response.headers[hit]}), so ` +
+      `The site's page cache answered the request for ${path} (${hit}: ${headers?.[hit]}), so ` +
         "the values WordPress stored cannot be read or verified (a write already sent may have been saved). " +
         "Purge the page cache and " +
         "exclude logged-in REST API responses from it: a cached response to an authenticated request is also " +
         "served to anonymous visitors.",
     );
   }
-  return response.data;
 }
 
 /**
@@ -406,7 +410,12 @@ export async function handleUpdateSocial(client: WordPressClient, params: Params
         });
         continue;
       }
-      const media = await client.getMediaItem(mediaId);
+      // A plain Error keeps a missing media item from being reported as a missing SEOPress route.
+      const media = await client.getMediaItem(mediaId).catch((error: unknown) => {
+        throw new Error(
+          `Media item ${mediaId} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
       if (!media.mime_type?.startsWith("image/")) {
         throw new Error(`Media item ${mediaId} is not an image (${media.mime_type ?? "unknown type"}).`);
       }
@@ -534,16 +543,25 @@ interface ListedItem {
   meta?: Record<string, unknown>;
 }
 
+/**
+ * REST bases of the site's public content types. Requested bases must be among them: they
+ * become request paths, and an absolute URL there would carry the site's credentials elsewhere.
+ */
 async function contentRestBases(client: WordPressClient, requested: string[] | undefined): Promise<string[]> {
-  if (requested && requested.length > 0) return requested;
   const types = await client.get<Record<string, PostTypeInfo>>("types?context=edit");
-  return Object.entries(types)
+  const available = Object.entries(types)
     .filter(([slug, type]) => {
       if (NON_CONTENT_POST_TYPES.has(slug) || !type.rest_base) return false;
       if (type.rest_namespace && type.rest_namespace !== "wp/v2") return false;
       return type.viewable !== false;
     })
     .map(([, type]) => type.rest_base as string);
+  if (!requested || requested.length === 0) return available;
+  const unknown = requested.filter((base) => !available.includes(base));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown post type REST base: ${unknown.join(", ")}. Available: ${available.join(", ")}.`);
+  }
+  return requested;
 }
 
 export async function handleListIssues(client: WordPressClient, params: Params): Promise<unknown> {
@@ -566,7 +584,7 @@ export async function handleListIssues(client: WordPressClient, params: Params):
         return checkboxValue(value) === "yes";
       }
       const stored =
-        "_seopress_titles_title" in meta
+        "_seopress_titles_title" in meta && "_seopress_titles_desc" in meta
           ? { title: normalize(meta._seopress_titles_title), description: normalize(meta._seopress_titles_desc) }
           : await readTitleDescription(client, item.id);
       if (issue === "missing_title") return normalize(stored.title) === "";
@@ -578,10 +596,9 @@ export async function handleListIssues(client: WordPressClient, params: Params):
     let scanned = 0;
     for (const base of bases) {
       for (let page = 1; found.length < maxItems; page++) {
-        const response = await client.requestWithMetadata<ListedItem[]>(
-          "GET",
-          `${base}?status=${encodeURIComponent(status)}&per_page=100&page=${page}&context=edit&_fields=id,title,link,meta`,
-        );
+        const endpoint = `${base}?status=${encodeURIComponent(status)}&per_page=100&page=${page}&context=edit&_fields=id,title,link,meta`;
+        const response = await client.requestWithMetadata<ListedItem[]>("GET", endpoint, null, NO_CACHE);
+        assertNotPageCached(response.headers, endpoint);
         const items = Array.isArray(response.data) ? response.data : [];
         for (const item of items) {
           scanned++;
@@ -667,10 +684,14 @@ export async function handleUpdateSettings(client: WordPressClient, params: Para
   return withErrors(`Failed to update SEOPress ${section} settings`, async () => {
     const path = `options/${section}-settings`;
     const raw = await read<unknown>(client, path);
-    const current = isPlainObject(raw) ? raw : {};
+    // SEOPress answers an empty option with []. Any other shape is unexpected, and writing
+    // over it would erase the option, so stop.
+    const current = isPlainObject(raw) ? raw : Array.isArray(raw) && raw.length === 0 ? {} : null;
+    if (!current) throw new Error(`Unexpected ${section} settings response; nothing was saved.`);
     // The route replaces the whole option with the request body, so send every
     // existing key; a partial body would erase the settings it leaves out.
-    await client.post(seopressUrl(client, path), mergeSettings(current, changes));
+    const expected = mergeSettings(current, changes);
+    await client.post(seopressUrl(client, path), expected);
     const stored = await read<unknown>(client, path);
 
     const lines: string[] = [];
@@ -688,8 +709,21 @@ export async function handleUpdateSettings(client: WordPressClient, params: Para
           : `- **${name}:** ${display(sent)} (was ${display(before)})`,
       );
     }
-    if (mismatches.length > 0) {
-      throw new Error(`SEOPress did not store the requested ${section} settings:\n${mismatches.join("\n")}`);
+    // Untouched settings were re-sent too; a sanitizer or filter may have dropped or rewritten them.
+    const requested = new Set(changedPaths(changes).map((leaf) => leaf.join(".")));
+    const collateral = changedPaths(expected)
+      .filter((leaf) => !requested.has(leaf.join(".")))
+      .filter((leaf) => settingValue(valueAt(stored, leaf)) !== settingValue(valueAt(expected, leaf)))
+      .map(
+        (leaf) =>
+          `- ${leaf.join(".")}: was ${display(settingValue(valueAt(expected, leaf)))}, now ${display(settingValue(valueAt(stored, leaf)))}`,
+      );
+    if (mismatches.length > 0 || collateral.length > 0) {
+      const parts = [
+        ...(mismatches.length > 0 ? [`Not stored as requested:\n${mismatches.join("\n")}`] : []),
+        ...(collateral.length > 0 ? [`Other settings changed by the save:\n${collateral.join("\n")}`] : []),
+      ];
+      throw new Error(`SEOPress ${section} settings were not saved as expected.\n${parts.join("\n")}`);
     }
     return `✅ SEOPress ${section} settings verified after saving.\n\n${lines.join("\n")}`;
   });

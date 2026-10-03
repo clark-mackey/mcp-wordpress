@@ -50,6 +50,7 @@ function fakeSEOPress() {
     listItems: { pages: [], posts: [] },
     // Simulates a page cache (LiteSpeed) answering reads with a stored response.
     cachedReads: false,
+    cachedListings: false,
   };
   const metaOf = (id) => {
     if (!meta.has(id)) throw new WordPressAPIError("Sorry, you are not allowed to do that.", 403);
@@ -128,7 +129,10 @@ function fakeSEOPress() {
       return {
         data: items.slice((page - 1) * 100, page * 100),
         status: 200,
-        headers: { "x-wp-totalpages": String(Math.max(1, Math.ceil(items.length / 100))) },
+        headers: {
+          "x-wp-totalpages": String(Math.max(1, Math.ceil(items.length / 100))),
+          ...(state.cachedListings && { "x-litespeed-cache": "hit" }),
+        },
       };
     }),
     put: vi.fn(async (url, body) => {
@@ -161,11 +165,12 @@ function fakeSEOPress() {
       attachment: { rest_base: "media", rest_namespace: "wp/v2", viewable: true },
       wp_block: { rest_base: "blocks", rest_namespace: "wp/v2", viewable: false },
     })),
-    getMediaItem: vi.fn(async (id) =>
-      id === 7
+    getMediaItem: vi.fn(async (id) => {
+      if (id === 404) throw new WordPressAPIError("Invalid post ID.", 404);
+      return id === 7
         ? { source_url: `${SITE}/og.jpg`, mime_type: "image/jpeg", media_details: { width: 1200, height: 630 } }
-        : { source_url: `${SITE}/doc.pdf`, mime_type: "application/pdf", media_details: {} },
-    ),
+        : { source_url: `${SITE}/doc.pdf`, mime_type: "application/pdf", media_details: {} };
+    }),
   };
   return { client, state };
 }
@@ -243,7 +248,7 @@ describe("SEOPressTools", () => {
       state.cachedReads = true;
 
       await expect(run("wp_seopress_update_title_description", { id: 42, title: "New" })).rejects.toThrow(
-        "page cache answered the SEOPress request",
+        "page cache answered the request",
       );
     });
 
@@ -321,6 +326,13 @@ describe("SEOPressTools", () => {
       expect(result).toContain('**facebook_image_id:** "7"');
     });
 
+    it("reports a missing media item as such, not as a missing SEOPress route", async () => {
+      await expect(run("wp_seopress_update_social", { id: 42, facebook_image_id: 404 })).rejects.toThrow(
+        "Media item 404 could not be read: Invalid post ID.",
+      );
+      expect(client.put).not.toHaveBeenCalled();
+    });
+
     it("rejects media that is not an image", async () => {
       await expect(run("wp_seopress_update_social", { id: 42, x_image_id: 8 })).rejects.toThrow("is not an image");
       expect(client.put).not.toHaveBeenCalled();
@@ -391,6 +403,37 @@ describe("SEOPressTools", () => {
       expect(result).toContain("(posts, pages)");
     });
 
+    it("rejects post_types the site does not list, so a URL there never gets the credentials", async () => {
+      await expect(
+        run("wp_seopress_list_issues", { issue: "noindex", post_types: ["https://attacker.example/x"] }),
+      ).rejects.toThrow("Unknown post type REST base: https://attacker.example/x");
+      await expect(
+        run("wp_seopress_list_issues", {
+          issue: "noindex",
+          post_types: ["../../seopress/v1/options/indexing-settings"],
+        }),
+      ).rejects.toThrow("Unknown post type REST base");
+      expect(client.requestWithMetadata).not.toHaveBeenCalled();
+    });
+
+    it("uses REST meta only when both title and description are exposed", async () => {
+      state.meta.set(5, { _seopress_titles_desc: "Stored description" });
+      state.listItems.pages = [{ id: 5, title: { raw: "Title meta only" }, meta: { _seopress_titles_title: "T" } }];
+
+      const result = await run("wp_seopress_list_issues", { issue: "missing_description", post_types: ["pages"] });
+
+      expect(result).not.toContain("Title meta only");
+    });
+
+    it("refuses a page-cached listing", async () => {
+      state.cachedListings = true;
+      state.listItems.pages = [{ id: 1, title: { raw: "Cached" }, meta: { _seopress_robots_index: "yes" } }];
+
+      await expect(run("wp_seopress_list_issues", { issue: "noindex", post_types: ["pages"] })).rejects.toThrow(
+        "page cache answered the request",
+      );
+    });
+
     it("pages through results and stops at max_items", async () => {
       state.listItems.posts = Array.from({ length: 150 }, (_, index) => ({
         id: index + 1,
@@ -434,6 +477,25 @@ describe("SEOPressTools", () => {
       await expect(
         run("wp_seopress_update_settings", { section: "titles", changes: { seopress_titles_sep: "|" } }),
       ).rejects.toThrow('- seopress_titles_sep: sent "|", stored (empty), previously "-"');
+    });
+
+    it("fails when the save changes a setting that was not requested", async () => {
+      state.dropOnSave.add("seopress_titles_single_titles");
+
+      await expect(
+        run("wp_seopress_update_settings", { section: "titles", changes: { seopress_titles_sep: "|" } }),
+      ).rejects.toThrow(
+        'Other settings changed by the save:\n- seopress_titles_single_titles.page.title: was "%%post_title%%", now (empty)',
+      );
+    });
+
+    it("does not write over an unexpected settings response", async () => {
+      state.options.titles = ["unexpected"];
+
+      await expect(
+        run("wp_seopress_update_settings", { section: "titles", changes: { seopress_titles_sep: "|" } }),
+      ).rejects.toThrow("Unexpected titles settings response; nothing was saved.");
+      expect(client.post).not.toHaveBeenCalled();
     });
 
     it("requires confirmation for the advanced section", async () => {
