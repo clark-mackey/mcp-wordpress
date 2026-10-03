@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The 71 MCP tools the server exposes, grouped by WordPress resource.
+The 81 MCP tools the server exposes, grouped by WordPress resource.
 
 ## Ownership
 
@@ -24,12 +24,12 @@ don't add per-tool Zod schemas.
 auth-error/`EnhancedError` handling. A new tool must satisfy this contract to be picked up.
 
 **File pattern**: multiple tools per file, grouped by resource — not file-per-tool. Newer/larger categories (`posts/`,
-`seo/`, `performance/`) split into `*ToolDefinitions.ts` (schemas) + `*Handlers.ts` (logic) + `index.ts` (class wiring);
-older categories (`pages.ts`, `users.ts`, `comments.ts`, `taxonomies.ts`, `cache.ts`, `site.ts`, `auth.ts`) are single
-files. `posts.ts` and `performance.ts` are `@deprecated` re-export shims — edit the subdirectory versions, not the
-shims.
+`seo/`, `performance/`, `seopress/`) split into `*ToolDefinitions.ts` (schemas) + `*Handlers.ts` (logic) + `index.ts`
+(class wiring); older categories (`pages.ts`, `users.ts`, `comments.ts`, `taxonomies.ts`, `cache.ts`, `site.ts`,
+`auth.ts`) are single files. `posts.ts` and `performance.ts` are `@deprecated` re-export shims — edit the subdirectory
+versions, not the shims.
 
-**Category map** (71 tools / 12 categories — verified against source):
+**Category map** (81 tools / 13 categories — verified against source):
 
 | Category    | File(s)                                     | Count |
 | ----------- | ------------------------------------------- | ----- |
@@ -44,12 +44,25 @@ shims.
 | Cache       | `cache.ts`                                  | 4     |
 | Performance | `performance/PerformanceTools.ts`           | 6     |
 | SEO         | `seo/SEOToolDefinitions.ts`                 | 11    |
+| SEOPress    | `seopress/SEOPressToolDefinitions.ts`       | 10    |
 | System      | `version.ts` (wrapped by `system.ts`)       | 1     |
 
 **SEO engines** (`seo/`) — each subdirectory is one engine-per-concern, orchestrated by `seo/SEOTools.ts`:
 `analyzers/ContentAnalyzer.ts` (readability/keyword scoring), `auditors/SiteAuditor.ts` (site-wide audit),
 `generators/MetaGenerator.ts` + `SchemaGenerator.ts` (meta tags, JSON-LD), `optimizers/InternalLinkingSuggester.ts`,
 `providers/SearchConsoleProvider.ts` (Google Search Console). `validators/` is currently empty (reserved).
+
+**Plugin REST routes**: tools for a plugin's own REST namespace (e.g. `seopress/` → `/seopress/v1`) pass an absolute URL
+built from `client.getSiteUrl()`, because relative endpoints are prefixed with `/wp-json/wp/v2`. Writes are verified by
+reading back through `client.requestWithMetadata()`, which bypasses the GET cache, and a mismatch is a tool error —
+these plugin routes report success even when they store nothing or a sanitized value. Absolute URLs lose their query
+string in `WordPressClient`, so list queries use relative `/wp/v2` endpoints.
+
+**SEOPress** (`seopress/`): per-item tools use the `/seopress/v1/posts/{id}/*` field routes (they work on SEOPress
+releases that do not expose its meta in `/wp/v2`); robots/redirect checkboxes read back as `"yes"`/`true`, and fields
+SEOPress global settings force (`can_modify: false`) are refused before writing. `/options/{section}-settings` POST
+replaces the whole option, so `wp_seopress_update_settings` reads, deep-merges, then writes. Sections holding
+credentials (indexing, license, analytics, Pro) and the `/tools` export/import/reset routes are never called.
 
 **Shared imports**: `@/client/api.js` (`WordPressClient`), `@/utils/error.js`, `@/types/wordpress.js`,
 `@/utils/validation/security.js` (`sanitizeHtml`), `src/tools/params.ts` (`toolParams<T>`, `parseId`,
