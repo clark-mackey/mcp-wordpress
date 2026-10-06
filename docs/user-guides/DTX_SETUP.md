@@ -213,7 +213,7 @@ After installation, you'll have access to these prompts:
 
 ### Tool Categories
 
-The DTX includes 81 tools across:
+The DTX includes 87 tools across:
 
 - **Posts & Pages** - Content management
 - **Media Library** - File uploads and management

@@ -7,10 +7,10 @@
 
 ## Overview
 
-The WordPress MCP Server provides **81 tools** across **13 categories** for comprehensive WordPress management through
+The WordPress MCP Server provides **87 tools** across **14 categories** for comprehensive WordPress management through
 the Model Context Protocol.
 
-**Last Updated:** 10/3/2026 **Version:** 1.2.0 **Coverage:** 81/81 tools with examples
+**Last Updated:** 10/5/2026 **Version:** 1.2.0 **Coverage:** 87/87 tools with examples
 
 ## Quick Start
 
@@ -52,6 +52,7 @@ wp_get_site_settings --site=production
 | [media](./categories/media.md)             | 5     | File upload, management, and media library tools |
 | [auth](./categories/auth.md)               | 3     | Authentication testing and management tools      |
 | [performance](./categories/performance.md) | 6     | Performance monitoring and analytics tools       |
+| [redirection](./categories/redirection.md) | 6     | redirection management tools                     |
 | [seo](./categories/seo.md)                 | 11    | seo management tools                             |
 | [seopress](./categories/seopress.md)       | 10    | seopress management tools                        |
 
@@ -106,6 +107,12 @@ wp_get_site_settings --site=production
 | [`wp_performance_history`](./tools/wp_performance_history.md)                             | performance | Get historical performance data and trends                                                                                                                         |
 | [`wp_performance_optimize`](./tools/wp_performance_optimize.md)                           | performance | Get optimization recommendations and insights                                                                                                                      |
 | [`wp_performance_stats`](./tools/wp_performance_stats.md)                                 | performance | Get real-time performance statistics and metrics. Note: Top-level metrics (totalRequests, averageResponseTime, errorRate) are session-wide aggregates across al…   |
+| [`wp_redirection_check_redirect`](./tools/wp_redirection_check_redirect.md)               | redirection | Requests a path on this site as an anonymous visitor, without following redirects, and reports the HTTP status, the redirect target, what sent it, and whether…    |
+| [`wp_redirection_create_redirect`](./tools/wp_redirection_create_redirect.md)             | redirection | Creates a Redirection redirect from a path on this site to a target URL. Fails without saving when another redirect already handles the source (Redirection ign…   |
+| [`wp_redirection_list_groups`](./tools/wp_redirection_list_groups.md)                     | redirection | Lists Redirection groups with their IDs, module, enabled state, and redirect counts. Only groups in the WordPress module redirect without exporting server rule…   |
+| [`wp_redirection_list_redirects`](./tools/wp_redirection_list_redirects.md)               | redirection | Lists redirects managed by the Redirection plugin, newest first, with ID, source, status code, target, enabled state, group, and hit count. Filters match part…    |
+| [`wp_redirection_set_enabled`](./tools/wp_redirection_set_enabled.md)                     | redirection | Enables or disables a Redirection redirect. Disabling is how these tools remove a redirect; nothing is deleted. Reads the redirect back and fails if Redirectio…   |
+| [`wp_redirection_update_redirect`](./tools/wp_redirection_update_redirect.md)             | redirection | Changes the source, target, status code, title, or group of a plain URL redirect. Omitted fields are unchanged. Refuses redirects using other match conditions…    |
 | [`wp_search_site`](./tools/wp_search_site.md)                                             | site        | Performs a site-wide search for content across posts, pages, and media with comprehensive results and metadata. **Usage Examples:** • Search everything: `wp_se…   |
 | [`wp_seo_analyze_content`](./tools/wp_seo_analyze_content.md)                             | seo         | Analyze WordPress post content for SEO optimization opportunities including readability, keyword density, structure, and technical factors                         |
 | [`wp_seo_bulk_update_metadata`](./tools/wp_seo_bulk_update_metadata.md)                   | seo         | Update SEO metadata for multiple posts with progress tracking and error handling                                                                                   |
