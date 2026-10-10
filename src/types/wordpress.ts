@@ -114,6 +114,18 @@ export interface WordPressPage {
   _links?: WordPressLinks;
 }
 
+export interface WordPressRevision {
+  id: number;
+  /** ID of the post or page this revision belongs to. */
+  parent: number;
+  author: number;
+  date: string;
+  modified: string;
+  title: WordPressRendered;
+  content: WordPressRendered;
+  excerpt: WordPressRendered;
+}
+
 // Media Types
 export type MediaType = "image" | "video" | "text" | "application" | "audio";
 

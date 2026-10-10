@@ -1,6 +1,6 @@
 # mcp-wordpress
 
-MCP (Model Context Protocol) Server for WordPress. TypeScript ESM, 87 WordPress tools across 14 categories, exposed over
+MCP (Model Context Protocol) Server for WordPress. TypeScript ESM, 88 WordPress tools across 15 categories, exposed over
 the MCP SDK to any MCP-compatible client.
 
 ## Quick Start
@@ -19,12 +19,12 @@ npm run security:demo       # AI security-scanner demo (scripts/security-demo.js
 
 ## Architecture
 
-**Core**: MCP Server (`src/index.ts`) registers 87 WordPress tools via `src/server/ToolRegistry.ts`. **Client**:
+**Core**: MCP Server (`src/index.ts`) registers 88 WordPress tools via `src/server/ToolRegistry.ts`. **Client**:
 `src/client/api.ts` (`WordPressClient`) composes per-resource operation classes (`src/client/operations/`) via
 constructor injection; App Passwords, JWT, Basic, and API Key are configurable via `.env`/`mcp-wordpress.config.json` —
 Cookie auth is also implemented but is client/programmatic-only (see Authentication below). **Tools**: Posts(6) Pages(6)
 Media(5) Users(6) Comments(7) Taxonomies(10) Site(3) Auth(6) Cache(4) Performance(6) SEO(11) SEOPress(10) Redirection(6)
-System(1) = 87. **Key files**: `src/client/api.ts`, `src/server/ToolRegistry.ts`, `src/tools/`,
+Revisions(1) System(1) = 88. **Key files**: `src/client/api.ts`, `src/server/ToolRegistry.ts`, `src/tools/`,
 `src/config/ServerConfiguration.ts`, `src/utils/logger.ts`.
 
 Full per-directory contracts live in the Child DOX Index below — read the applicable child doc before editing.

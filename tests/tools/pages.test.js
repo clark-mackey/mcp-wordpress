@@ -664,6 +664,14 @@ describe("PageTools", () => {
 
       expect(result).toMatch(/2024/); // Should contain formatted date with year
     });
+
+    it("should include revision IDs so a revision can be restored", async () => {
+      mockClient.getPageRevisions.mockResolvedValueOnce([{ id: 101, author: 1, modified: "2024-01-15T14:30:00" }]);
+
+      const result = await pageTools.handleGetPageRevisions(mockClient, { id: 1 });
+
+      expect(result).toContain("ID 101:");
+    });
   });
 
   describe("Edge Cases and Error Handling", () => {

@@ -24,6 +24,7 @@ import { config } from "@/config/Config.js";
 import type {
   WordPressPost,
   WordPressPage,
+  WordPressRevision,
   WordPressMedia,
   WordPressUser,
   WordPressComment,
@@ -991,6 +992,10 @@ export class WordPressClient implements IWordPressClient {
     return this.postsOps.getPostRevisions(id);
   }
 
+  async getPostRevision(postId: number, revisionId: number): Promise<WordPressRevision> {
+    return this.postsOps.getPostRevision(postId, revisionId);
+  }
+
   // ============================================================================
   // Pages Operations (delegated to PagesOperations)
   // ============================================================================
@@ -1017,6 +1022,10 @@ export class WordPressClient implements IWordPressClient {
 
   async getPageRevisions(id: number): Promise<WordPressPage[]> {
     return this.pagesOps.getPageRevisions(id);
+  }
+
+  async getPageRevision(pageId: number, revisionId: number): Promise<WordPressRevision> {
+    return this.pagesOps.getPageRevision(pageId, revisionId);
   }
 
   // ============================================================================

@@ -134,6 +134,16 @@ describe("Operations Modules", () => {
         expect(result).toEqual(revisions);
       });
     });
+
+    describe("getPostRevision", () => {
+      it("should get a single post revision in edit context", async () => {
+        mockClient.get.mockResolvedValue({ id: 10, parent: 1 });
+
+        await postsOps.getPostRevision(1, 10);
+
+        expect(mockClient.get).toHaveBeenCalledWith("posts/1/revisions/10?context=edit");
+      });
+    });
   });
 
   describe("PagesOperations", () => {
@@ -206,6 +216,16 @@ describe("Operations Modules", () => {
         await pagesOps.deletePage(1);
 
         expect(mockClient.delete).toHaveBeenCalledWith("pages/1?force=false");
+      });
+    });
+
+    describe("getPageRevision", () => {
+      it("should get a single page revision in edit context", async () => {
+        mockClient.get.mockResolvedValue({ id: 20, parent: 2 });
+
+        await pagesOps.getPageRevision(2, 20);
+
+        expect(mockClient.get).toHaveBeenCalledWith("pages/2/revisions/20?context=edit");
       });
     });
   });

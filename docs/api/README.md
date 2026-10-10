@@ -7,10 +7,10 @@
 
 ## Overview
 
-The WordPress MCP Server provides **87 tools** across **14 categories** for comprehensive WordPress management through
+The WordPress MCP Server provides **88 tools** across **15 categories** for comprehensive WordPress management through
 the Model Context Protocol.
 
-**Last Updated:** 10/5/2026 **Version:** 1.2.0 **Coverage:** 87/87 tools with examples
+**Last Updated:** 10/10/2026 **Version:** 1.2.0 **Coverage:** 88/88 tools with examples
 
 ## Quick Start
 
@@ -53,6 +53,7 @@ wp_get_site_settings --site=production
 | [auth](./categories/auth.md)               | 3     | Authentication testing and management tools      |
 | [performance](./categories/performance.md) | 6     | Performance monitoring and analytics tools       |
 | [redirection](./categories/redirection.md) | 6     | redirection management tools                     |
+| [revision](./categories/revision.md)       | 1     | revision management tools                        |
 | [seo](./categories/seo.md)                 | 11    | seo management tools                             |
 | [seopress](./categories/seopress.md)       | 10    | seopress management tools                        |
 
@@ -113,6 +114,7 @@ wp_get_site_settings --site=production
 | [`wp_redirection_list_redirects`](./tools/wp_redirection_list_redirects.md)               | redirection | Lists redirects managed by the Redirection plugin, newest first, with ID, source, status code, target, enabled state, group, and hit count. Filters match part…    |
 | [`wp_redirection_set_enabled`](./tools/wp_redirection_set_enabled.md)                     | redirection | Enables or disables a Redirection redirect. Disabling is how these tools remove a redirect; nothing is deleted. Reads the redirect back and fails if Redirectio…   |
 | [`wp_redirection_update_redirect`](./tools/wp_redirection_update_redirect.md)             | redirection | Changes the source, target, status code, title, or group of a plain URL redirect. Omitted fields are unchanged. Refuses redirects using other match conditions…    |
+| [`wp_restore_revision`](./tools/wp_restore_revision.md)                                   | revision    | Restores a page or post to an earlier revision by copying that revision's title, content and excerpt back onto it. The page keeps its current status, so a publ…   |
 | [`wp_search_site`](./tools/wp_search_site.md)                                             | site        | Performs a site-wide search for content across posts, pages, and media with comprehensive results and metadata. **Usage Examples:** • Search everything: `wp_se…   |
 | [`wp_seo_analyze_content`](./tools/wp_seo_analyze_content.md)                             | seo         | Analyze WordPress post content for SEO optimization opportunities including readability, keyword density, structure, and technical factors                         |
 | [`wp_seo_bulk_update_metadata`](./tools/wp_seo_bulk_update_metadata.md)                   | seo         | Update SEO metadata for multiple posts with progress tracking and error handling                                                                                   |

@@ -279,7 +279,7 @@ export class PageTools {
       const content =
         `Found ${revisions.length} revisions for page ${id}:\n\n` +
         revisions
-          .map((r) => `- Revision by user ID ${r.author} at ${new Date(r.modified).toLocaleString()}`)
+          .map((r) => `- ID ${r.id}: Revision by user ID ${r.author} at ${new Date(r.modified).toLocaleString()}`)
           .join("\n");
       return content;
     } catch (_error) {
