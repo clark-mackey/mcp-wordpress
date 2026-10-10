@@ -26,18 +26,33 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
+    # Secrets can't be read in a job-level `if`, so expose them as env and gate each step.
+    # Without ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (e.g. on a fork that hasn't set
+    # them up, or before the Claude GitHub App is installed) the job succeeds with its
+    # steps skipped instead of failing every PR.
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
     steps:
+      - name: Skip notice (no Claude credentials)
+        if: env.ANTHROPIC_API_KEY == '' && env.CLAUDE_CODE_OAUTH_TOKEN == ''
+        run: |
+          echo "::notice::Claude review skipped: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN and install https://github.com/apps/claude on this repo to enable it."
+
       - name: Checkout repository
+        if: env.ANTHROPIC_API_KEY != '' || env.CLAUDE_CODE_OAUTH_TOKEN != ''
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
         id: claude-review
+        if: env.ANTHROPIC_API_KEY != '' || env.CLAUDE_CODE_OAUTH_TOKEN != ''
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           # Prompt for automated review (no @claude mention needed)
           prompt: |
