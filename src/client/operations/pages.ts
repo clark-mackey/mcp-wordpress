@@ -3,7 +3,13 @@
  * Handles all page-related WordPress REST API operations
  */
 
-import type { WordPressPage, PostQueryParams, CreatePageRequest, UpdatePageRequest } from "@/types/wordpress.js";
+import type {
+  WordPressPage,
+  WordPressRevision,
+  PostQueryParams,
+  CreatePageRequest,
+  UpdatePageRequest,
+} from "@/types/wordpress.js";
 
 /**
  * Interface for the base client methods needed by pages operations
@@ -67,5 +73,12 @@ export class PagesOperations {
    */
   async getPageRevisions(id: number): Promise<WordPressPage[]> {
     return this.client.get<WordPressPage[]>(`pages/${id}/revisions`);
+  }
+
+  /**
+   * Get a single page revision with raw (editable) fields
+   */
+  async getPageRevision(pageId: number, revisionId: number): Promise<WordPressRevision> {
+    return this.client.get<WordPressRevision>(`pages/${pageId}/revisions/${revisionId}?context=edit`);
   }
 }

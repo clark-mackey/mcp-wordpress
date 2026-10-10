@@ -7,6 +7,7 @@
 import type {
   WordPressPost,
   WordPressPage,
+  WordPressRevision,
   WordPressMedia,
   WordPressUser,
   WordPressComment,
@@ -179,6 +180,7 @@ export interface IWordPressClient {
   updatePost(data: UpdatePostRequest): Promise<WordPressPost>;
   deletePost(id: number, force?: boolean): Promise<{ deleted: boolean; previous?: WordPressPost }>;
   getPostRevisions(id: number): Promise<WordPressPost[]>;
+  getPostRevision(postId: number, revisionId: number): Promise<WordPressRevision>;
 
   // Pages
   getPages(params?: PostQueryParams): Promise<WordPressPage[]>;
@@ -187,6 +189,7 @@ export interface IWordPressClient {
   updatePage(data: UpdatePageRequest): Promise<WordPressPage>;
   deletePage(id: number, force?: boolean): Promise<{ deleted: boolean; previous?: WordPressPage }>;
   getPageRevisions(id: number): Promise<WordPressPage[]>;
+  getPageRevision(pageId: number, revisionId: number): Promise<WordPressRevision>;
 
   // Media
   getMedia(params?: MediaQueryParams): Promise<WordPressMedia[]>;

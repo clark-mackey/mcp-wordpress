@@ -2919,6 +2919,64 @@
         }
       }
     },
+    "/tools/wp_restore_revision": {
+      "post": {
+        "summary": "Restores a page or post to an earlier revision by copying that revision's title, content and excerpt back onto it. The page keeps its current status, so a published page goes live with the restored content immediately. WordPress records the restore as a new revision, so it can itself be undone. Get revision IDs from wp_get_page_revisions or wp_get_post_revisions.",
+        "description": "Execute wp_restore_revision MCP tool",
+        "tags": [
+          "revision"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "post_type": {
+                    "type": "string",
+                    "description": "Whether the revision belongs to a page or a post. Defaults to page."
+                  },
+                  "parent_id": {
+                    "type": "number",
+                    "description": "The ID of the page or post to restore."
+                  },
+                  "revision_id": {
+                    "type": "number",
+                    "description": "The ID of the revision to restore."
+                  }
+                },
+                "required": [
+                  "parent_id",
+                  "revision_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid parameters"
+          },
+          "401": {
+            "description": "Authentication failed"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/tools/wp_search_site": {
       "post": {
         "summary": "Performs a site-wide search for content across posts, pages, and media with comprehensive results and metadata.\n\n**Usage Examples:**\n• Search everything: `wp_search_site --term=\"WordPress\"`\n• Search posts only: `wp_search_site --term=\"tutorial\" --type=\"posts\"`\n• Search pages: `wp_search_site --term=\"about\" --type=\"pages\"`\n• Search media: `wp_search_site --term=\"logo\" --type=\"media\"`\n• Find specific content: `wp_search_site --term=\"contact form\"`",

@@ -3,7 +3,13 @@
  * Handles all post-related WordPress REST API operations
  */
 
-import type { WordPressPost, PostQueryParams, CreatePostRequest, UpdatePostRequest } from "@/types/wordpress.js";
+import type {
+  WordPressPost,
+  WordPressRevision,
+  PostQueryParams,
+  CreatePostRequest,
+  UpdatePostRequest,
+} from "@/types/wordpress.js";
 
 /**
  * Interface for the base client methods needed by posts operations
@@ -64,5 +70,12 @@ export class PostsOperations {
    */
   async getPostRevisions(id: number): Promise<WordPressPost[]> {
     return this.client.get<WordPressPost[]>(`posts/${id}/revisions`);
+  }
+
+  /**
+   * Get a single post revision with raw (editable) fields
+   */
+  async getPostRevision(postId: number, revisionId: number): Promise<WordPressRevision> {
+    return this.client.get<WordPressRevision>(`posts/${postId}/revisions/${revisionId}?context=edit`);
   }
 }
