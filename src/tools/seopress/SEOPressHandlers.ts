@@ -16,6 +16,7 @@ import { WordPressClient } from "@/client/api.js";
 import { WordPressAPIError } from "@/types/client.js";
 import { preserveToolError } from "@/utils/error.js";
 import { parseId } from "../params.js";
+import { assertNotPageCached, NO_CACHE, pluginRestUrl, readFresh } from "../pluginRest.js";
 
 type Params = Record<string, unknown>;
 type Stored = Record<string, string>;
@@ -77,36 +78,11 @@ const NON_CONTENT_POST_TYPES = new Set([
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-const seopressUrl = (client: WordPressClient, path: string): string =>
-  `${client.getSiteUrl()}/wp-json/seopress/v1/${path}`;
+const seopressUrl = (client: WordPressClient, path: string): string => pluginRestUrl(client, "seopress/v1", path);
 
-const PAGE_CACHE_HEADERS = ["x-litespeed-cache", "x-cache", "x-proxy-cache", "cf-cache-status"];
-
-/**
- * GET without the client cache, so a read-back after a write shows what WordPress stored.
- * Some page caches (LiteSpeed Cache) store REST responses to Application Password requests
- * as if anonymous; a cached response shows stale values, so it is an error, never data.
- */
-async function read<T>(client: WordPressClient, path: string): Promise<T> {
-  const response = await client.requestWithMetadata<T>("GET", seopressUrl(client, path), null, NO_CACHE);
-  assertNotPageCached(response.headers, path);
-  return response.data;
-}
-
-const NO_CACHE = { headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } };
-
-function assertNotPageCached(headers: Record<string, string> | undefined, path: string): void {
-  const hit = PAGE_CACHE_HEADERS.find((name) => /^hit/i.test(headers?.[name] ?? ""));
-  if (hit) {
-    throw new Error(
-      `The site's page cache answered the request for ${path} (${hit}: ${headers?.[hit]}), so ` +
-        "the values WordPress stored cannot be read or verified (a write already sent may have been saved). " +
-        "Purge the page cache and " +
-        "exclude logged-in REST API responses from it: a cached response to an authenticated request is also " +
-        "served to anonymous visitors.",
-    );
-  }
-}
+/** A fresh read of a SEOPress route; a page-cached response is an error. */
+const read = <T>(client: WordPressClient, path: string): Promise<T> =>
+  readFresh<T>(client, seopressUrl(client, path), path);
 
 /**
  * SEOPress sanitizes text with sanitize_text_field()/sanitize_textarea_field(), which

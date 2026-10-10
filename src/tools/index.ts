@@ -5,6 +5,7 @@ export { default as MediaTools } from "./media.js";
 export { default as PageTools } from "./pages.js";
 export { default as PerformanceTools } from "./performance.js";
 export { default as PostTools } from "./posts.js";
+export { default as RedirectionTools } from "./redirection/index.js";
 export { default as SEOPressTools } from "./seopress/index.js";
 export { default as SEOTools } from "./seo/index.js";
 export { default as SiteTools } from "./site.js";

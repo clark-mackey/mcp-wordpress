@@ -254,6 +254,15 @@ describe("WordPressClient", () => {
       expect(result).toEqual({ id: 1, title: "Test" });
     });
 
+    it("should keep the query string of an absolute endpoint", async () => {
+      await client.get("https://test.example.com/wp-json/redirection/v1/redirect?filterBy%5Burl%5D=%2Fold&page=0");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://test.example.com/wp-json/redirection/v1/redirect?filterBy%5Burl%5D=%2Fold&page=0",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
     it("should make POST requests with data", async () => {
       const postData = { title: "New Post", content: "Content" };
 

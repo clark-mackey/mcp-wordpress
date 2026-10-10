@@ -48,7 +48,7 @@ Manage WordPress sites with natural language through AI tools like Claude Deskto
 
 **Key Advantages:**
 
-- 🏆 **Most Complete**: 81 tools vs 20-30 in alternatives
+- 🏆 **Most Complete**: 87 tools vs 20-30 in alternatives
 - ⚡ **Fastest Setup**: 2-click Claude Desktop installation via DXT
 - 🔒 **CI-Tested**: 2750+ tests across Node 22/24, CodeQL + Trivy security scanning
 - 🎯 **TypeScript Native**: 100% type safety, best-in-class developer experience
@@ -173,7 +173,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 
 | Feature                    | This Server                        | Competition     |
 | -------------------------- | ---------------------------------- | --------------- |
-| **Tools Available**        | 81 tools                           | 20-30 tools     |
+| **Tools Available**        | 87 tools                           | 20-30 tools     |
 | **Claude Desktop DXT**     | ✅ 2-click install                 | ❌ Manual setup |
 | **Multi-Site Support**     | ✅ Up to 50 sites                  | ❌ Single site  |
 | **TypeScript**             | ✅ 100% TypeScript, strict mode    | ⚠️ Partial/None |
@@ -181,7 +181,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 | **Test Coverage**          | ✅ 2750+ tests, ~76% line coverage | ⚠️ Limited      |
 | **Security Scanning**      | ✅ CodeQL + Trivy in CI            | ⚠️ Unknown      |
 
-## 📋 Available Tools (81 Tools)
+## 📋 Available Tools (87 Tools)
 
 ### Content Management
 
@@ -191,6 +191,8 @@ Alternative methods: JWT, Basic Auth, API Key — see
 - **🔍 SEO** (11 tools) - Content analysis, metadata, schema markup, SERP tracking, keyword research
 - **🔎 SEOPress** (10 tools) - SEOPress titles, descriptions, robots, social, redirects, target keywords, issue lists,
   global settings, and sitemap checks, each write verified after saving
+- **↪️ Redirection** (6 tools) - Redirection plugin redirects: list, create, update, enable/disable, and live checks,
+  with duplicate and loop checks and each write verified after saving
 
 ### User & Community
 
