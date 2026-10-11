@@ -74,6 +74,7 @@
     "security:review": "npm run test:security",
     "security:scan": "node scripts/security-audit-gate.js",
     "setup": "node bin/setup.js",
+    "workshop": "node bin/workshop.js",
     "setup:vscode": "code --install-extension bradlc.vscode-tailwindcss && code --install-extension continue.continue && code --install-extension ms-python.python && code --install-extension ms-vscode.hexeditor",
     "start": "npm run build && node dist/index.js",
     "status": "node bin/status.js",

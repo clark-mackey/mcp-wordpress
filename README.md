@@ -98,6 +98,13 @@ Response: "✅ Authentication successful! Connected to: Your Site Name"
 📺 **[Watch 2-minute Setup Video](https://github.com/docdyhr/mcp-wordpress/wiki/setup-video)** | 📖
 **[Detailed Setup Guide](docs/INSTALLATION.md)**
 
+## 🧰 First-Time Setup Guide
+
+New to this? [docs/workshop/INSTALL.md](docs/workshop/INSTALL.md) is a three-step walkthrough (make a WP key, build the
+server, run `npm run workshop`). It tests your login, refuses an Administrator account, registers the server with Claude
+Code, and blocks the delete and user tools. [docs/workshop/INSTALL_PROMPT.md](docs/workshop/INSTALL_PROMPT.md) is a
+prompt that lets Claude Code guide you through it.
+
 ## ⚡ Installation Options
 
 ### 🏆 Recommended: Claude Desktop Extension (DXT)
