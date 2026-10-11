@@ -74,7 +74,6 @@
     "security:review": "npm run test:security",
     "security:scan": "node scripts/security-audit-gate.js",
     "setup": "node bin/setup.js",
-    "workshop": "node bin/workshop.js",
     "setup:vscode": "code --install-extension bradlc.vscode-tailwindcss && code --install-extension continue.continue && code --install-extension ms-python.python && code --install-extension ms-vscode.hexeditor",
     "start": "npm run build && node dist/index.js",
     "status": "node bin/status.js",
@@ -107,7 +106,8 @@
     "test:vscode": "npm run build && node dist/scripts/test-vscode-setup.js",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify-claude": "node scripts/verify-claude-integration.js"
+    "verify-claude": "node scripts/verify-claude-integration.js",
+    "workshop": "node bin/workshop.js"
   },
   "lint-staged": {
     "*.{ts,js}": [
@@ -127,11 +127,6 @@
       "undici": ">=6.28.1 <7.0.0"
     },
     "@hono/node-server": "^2.0.12",
-    "@pact-foundation/pact-node": {
-      "@types/request": {
-        "form-data": "^4.0.3"
-      }
-    },
     "@semantic-release/github": {
       "undici": ">=7.29.1 <8.0.0"
     },
@@ -167,7 +162,6 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@pact-foundation/pact": "^16.2.0",
-    "@pact-foundation/pact-node": "^10.18.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@types/node": "^25.3.3",

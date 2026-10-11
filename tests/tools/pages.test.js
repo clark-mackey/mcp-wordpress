@@ -120,6 +120,7 @@ describe("PageTools", () => {
       expect(result).toContain("Test Page 1");
       expect(result).toContain("Test Page 2");
       expect(result).toContain("https://test-site.com/page-1");
+      expect(result).toContain("Last modified:");
     });
 
     it("should handle empty results", async () => {

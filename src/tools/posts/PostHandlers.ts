@@ -13,6 +13,7 @@ import { ErrorHandlers } from "@/utils/enhancedError.js";
 import { validateId, validatePaginationParams, validatePostParams } from "@/utils/validation.js";
 import { sanitizeHtml } from "@/utils/validation/security.js";
 import { WordPressDataStreamer, StreamingUtils, StreamingResult } from "@/utils/streaming.js";
+import { formatModified } from "../format.js";
 
 export function buildListParams(params: PostQueryParams): PostQueryParams {
   if (!params || typeof params !== "object") {
@@ -96,6 +97,7 @@ export function formatPostsResponse(
       let postInfo = `- ID ${p.id}: **${p.title.rendered}** (${p.status})\n`;
       postInfo += `  👤 Author: ${authorName}\n`;
       postInfo += `  📅 Published: ${formattedDate}\n`;
+      postInfo += `  ✏️ Last modified: ${formatModified(p)}\n`;
       if (postCategories.length > 0) postInfo += `  📁 Categories: ${postCategories.join(", ")}\n`;
       if (postTags.length > 0) postInfo += `  🏷️ Tags: ${postTags.join(", ")}\n`;
       if (excerpt) postInfo += `  📝 Excerpt: ${excerpt}\n`;

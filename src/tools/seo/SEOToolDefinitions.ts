@@ -342,7 +342,7 @@ export const testSEOIntegrationTool: Tool = {
       },
       testMetadataAccess: {
         type: "boolean",
-        description: "Test ability to read/write SEO metadata",
+        description: "Test ability to read SEO metadata (read-only; never writes to posts)",
       },
       site: {
         type: "string",

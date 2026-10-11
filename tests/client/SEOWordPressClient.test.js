@@ -797,6 +797,21 @@ describe("SEOWordPressClient", () => {
     });
   });
 
+  describe("testSEOIntegration", () => {
+    it("reads sample posts but never writes to them", async () => {
+      client.getPosts = vi.fn().mockResolvedValue([{ id: 7 }]);
+      client.getSEOMetadata = vi.fn().mockResolvedValue({ title: "T", description: "D" });
+      client.updateSEOMetadata = vi.fn();
+
+      const result = await client.testSEOIntegration();
+
+      expect(result.canReadMetadata).toBe(true);
+      expect(result.canWriteMetadata).toBe(false);
+      expect(result.errors).toContain("Write access not tested: this check never writes to live posts.");
+      expect(client.updateSEOMetadata).not.toHaveBeenCalled();
+    });
+  });
+
   describe("Integration Status", () => {
     beforeEach(async () => {
       mockWordPressClient.get.mockResolvedValueOnce([{ slug: "wordpress-seo", status: "active" }]);
