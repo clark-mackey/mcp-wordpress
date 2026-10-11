@@ -21,9 +21,26 @@ No node? Install the current LTS from nodejs.org, then reopen the terminal.
 1. Users, Add New. Username `ai-editor`. Role **Editor**. Never Administrator. Use a strong password you won't use
    again.
 2. Users, edit `ai-editor`, scroll to **Application Passwords**. Name it `Claude Code`. Click Add.
-3. Copy the password now. WP shows it once.
+3. Click **Add Application Password**. A green box appears. Click **Copy** now, because WP shows it only once.
 
-Done when you have the password copied. Setup in Step 3 tests it for you.
+![What you should see after adding an application password](images/app-password-created.png)
+
+**You should see exactly this:**
+
+- A green box: "Your new password for **ai-editor** is:" followed by six groups of four letters and numbers
+- The name in the box is `ai-editor`, not your own admin name
+- A Copy button, and "You will not be able to retrieve it" underneath
+
+Anything different is a problem:
+
+| You see                                                | Meaning and fix                                                                                            |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| No "Application Passwords" section on the profile page | The site is not on HTTPS, or a security plugin or the host turned it off. Try a throwaway site             |
+| A warning or error notice instead of the green box     | Same causes. Read the notice, then try a throwaway site                                                    |
+| The box names a different user                         | You are on the wrong profile. Go to Users, edit `ai-editor`, and add it there                              |
+| The password is not six groups of four                 | You copied something else, such as a login password. Add a new application password and copy the green box |
+
+Done when the green box shows a password for `ai-editor` and you have copied it. Setup in Step 3 tests it for you.
 
 ---
 

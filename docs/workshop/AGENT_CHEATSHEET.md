@@ -73,6 +73,7 @@ You cannot do this for them (it needs the WP admin login, which should not be sh
 1. Users, Add New. Username `ai-editor`. Role **Editor**. A strong password they will not reuse.
 2. Edit `ai-editor`, scroll to **Application Passwords**, name it `Claude Code`, click Add.
 3. Copy the password. WP shows it once. Spaces in it are fine.
+
 4. Test it, with the person running this themselves (the password goes in their terminal, not in your context):
 
 ```bash
@@ -80,6 +81,16 @@ curl -u 'ai-editor:PASSWORD' https://SITE/wp-json/wp/v2/users/me
 ```
 
 Pass: JSON containing `"name":"ai-editor"`.
+
+Ask the person to describe what they see after clicking Add. Expected (screenshot:
+`docs/workshop/images/app-password-created.png`): a green box reading "Your new password for **ai-editor** is:" followed
+by six groups of four characters, a Copy button, and "You will not be able to retrieve it." Treat anything else as a
+problem:
+
+- no Application Passwords section, or a warning or error notice instead of the green box: HTTPS is missing or a
+  security plugin or host disabled app passwords (see the failure map below)
+- the box names a different user: they are on the wrong profile. Have them add it under `ai-editor`
+- not six groups of four: they copied something else. Have them add a new one
 
 What got stored: a user row and a hashed app password in the WP database.
 
