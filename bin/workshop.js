@@ -31,6 +31,24 @@ import { Writable } from "stream";
 import { parse as parseDotenv } from "dotenv";
 import { serializeEnvFile } from "./setup.js";
 
+/**
+ * execFileSync that also works on native Windows, where `claude` and `npm` are .cmd shims that
+ * Node only starts through a shell. cmd.exe gets each argument in double quotes so paths with
+ * spaces (C:\Users\Jane Doe\...) survive.
+ */
+export function runCommand(command, args, options = {}, platform = process.platform) {
+  if (platform !== "win32") return execFileSync(command, args, options);
+  const quoted = args.map((arg) => (/^[\w./:=@-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '\\"')}"`));
+  return execFileSync(command, quoted, { ...options, shell: true });
+}
+
+/**
+ * The identity sent to WordPress. It starts with "Mozilla/5.0 (compatible; ...)", the usual form
+ * for a named client, because host bot filters often answer 403 to anything else (curl, node).
+ * Keep in step with getUserAgent() in src/utils/version.ts.
+ */
+export const USER_AGENT = "Mozilla/5.0 (compatible; mcp-wordpress; +https://github.com/clark-mackey/mcp-wordpress)";
+
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MIN_NODE = "22.14.0";
 
@@ -228,13 +246,44 @@ export function findRegistration(homeDir, name) {
   }
 }
 
+async function readJson(response) {
+  try {
+    return JSON.parse(await response.text());
+  } catch {
+    return null;
+  }
+}
+
+/** Turns a 401/403 from /users/me into the one fix that matches it. */
+export function loginFailureMessage(status, body) {
+  const code = body?.code;
+  if (!body) {
+    return `The site answered ${status} with a web page, not WordPress. A firewall, bot filter, security plugin or a staging password is blocking the API. Ask the host to allow /wp-json/ for your site, or use a different site.`;
+  }
+  if (code === "incorrect_password" || code === "invalid_username" || code === "invalid_email") {
+    return "WordPress says the username or app password is wrong. Use the WP username (not the display name) and paste the app password again. Spaces in it are fine.";
+  }
+  if (code === "application_passwords_disabled") {
+    return "Application Passwords are turned off on this site (by a security plugin or the host). Turn them back on, or use a different site.";
+  }
+  if (code === "rest_not_logged_in") {
+    return [
+      "WordPress never saw the login: the host is stripping the Authorization header.",
+      "  Fix: add this line at the top of the site's .htaccess file (or ask the host to pass the Authorization header through):",
+      '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+      "  Then run this again.",
+    ].join("\n");
+  }
+  return `WordPress refused the login (${status}${code ? `, ${code}` : ""}): ${body.message ?? "no details"}. A security plugin may be blocking the REST API.`;
+}
+
 /** Calls /users/me with the app password and turns every failure into a plain-English message. */
 export async function fetchMe(siteUrl, username, appPassword, fetchImpl = fetch) {
   const auth = Buffer.from(`${username}:${appPassword}`).toString("base64");
   let response;
   try {
     response = await fetchImpl(`${siteUrl}/wp-json/wp/v2/users/me?context=edit`, {
-      headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
+      headers: { Authorization: `Basic ${auth}`, Accept: "application/json", "User-Agent": USER_AGENT },
       redirect: "manual",
     });
   } catch (error) {
@@ -247,17 +296,13 @@ export async function fetchMe(siteUrl, username, appPassword, fetchImpl = fetch)
     };
   }
   if (response.status === 401 || response.status === 403) {
-    return {
-      ok: false,
-      message:
-        "WordPress rejected the login (401/403). Check the username and app password. If both are right, the host or a firewall may be stripping the Authorization header, or a security plugin may block the REST API.",
-    };
+    return { ok: false, message: loginFailureMessage(response.status, await readJson(response)) };
   }
   if (response.status === 404) {
     return {
       ok: false,
       message:
-        "The REST API was not found (404). In WP admin go to Settings, Permalinks and choose Post name. Also check that the Site URL is the WordPress address.",
+        "The REST API was not found (404). Check that the Site URL is the address visitors use (Settings, General, Site Address). If it is, set Settings, Permalinks to Post name, or check whether a security plugin has renamed or hidden /wp-json/.",
     };
   }
   if (!response.ok) return { ok: false, message: `WordPress answered with HTTP ${response.status}.` };
@@ -386,7 +431,7 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
     env: process.env,
     nodeVersion: process.version,
     fetchImpl: fetch,
-    execFile: execFileSync,
+    execFile: runCommand,
     probe: probeServer,
     log: console.log,
     ...overrides,

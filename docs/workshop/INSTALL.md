@@ -1,7 +1,8 @@
 # Your WP MCP: 3 Steps
 
-You need: a Mac or Linux machine (Windows: use WSL), Node 22.14 or newer, git, Claude Code, and a WP site you can afford
-to break (yours or a staging copy, not a client's live site). The site must use HTTPS.
+You need: a Mac, Linux or Windows machine (Command Prompt, PowerShell or WSL all work), Node 22.14 or newer, git, Claude
+Code, and a WP site you can afford to break (yours or a staging copy, not a client's live site). The site must use
+HTTPS.
 
 No suitable site, or yours blocks app passwords? Make a free throwaway WP site (InstaWP or similar) and use that.
 
@@ -33,18 +34,22 @@ No node? Install the current LTS from nodejs.org, then reopen the terminal.
 
 Anything different is a problem:
 
-| You see                                                | Meaning and fix                                                                                            |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| No "Application Passwords" section on the profile page | The site is not on HTTPS, or a security plugin or the host turned it off. Try a throwaway site             |
-| A warning or error notice instead of the green box     | Same causes. Read the notice, then try a throwaway site                                                    |
-| The box names a different user                         | You are on the wrong profile. Go to Users, edit `ai-editor`, and add it there                              |
-| The password is not six groups of four                 | You copied something else, such as a login password. Add a new application password and copy the green box |
+| You see                                                | Meaning and fix                                                                                                                                                                                     |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No "Application Passwords" section on the profile page | The site is not on HTTPS, or a security plugin or the host turned it off. Try a throwaway site                                                                                                      |
+| A warning or error notice instead of the green box     | Same causes. Read the notice, then try a throwaway site                                                                                                                                             |
+| The box names a different user                         | You are on the wrong profile. Go to Users, edit `ai-editor`, and add it there                                                                                                                       |
+| The password is not six groups of four                 | You copied something else, such as a login password. Add a new application password and copy the green box                                                                                          |
+| The green box is empty, or Copy copies nothing         | WP redirected the request, so no password was made. In Settings, General, make WordPress Address and Site Address match the address in your browser exactly (https, www or not), then add a new one |
 
 Done when the green box shows a password for `ai-editor` and you have copied it. Setup in Step 3 tests it for you.
 
 ---
 
 ## Step 2: Build the server (about 2 minutes)
+
+Windows: first run `cd %USERPROFILE%` (Command Prompt) or `cd ~` (PowerShell), so the folder is not created inside
+`C:\WINDOWS\system32`.
 
 ```bash
 git clone https://github.com/clark-mackey/mcp-wordpress.git
@@ -59,7 +64,8 @@ Done when the build finishes without an error.
 
 ## Step 3: Connect Claude and lock it (about 3 minutes)
 
-Run this in your own terminal window, inside the `mcp-wordpress` folder:
+Run this yourself in your own terminal window, inside the `mcp-wordpress` folder. Claude cannot run it for you: its
+command runner cannot take the hidden password, and the password should never pass through chat.
 
 ```bash
 npm run workshop
@@ -110,16 +116,18 @@ Two things to know while you work:
 
 ## If it doesn't work
 
-| You see                                | Fix                                                                                                                    |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `node -v` is below 22.14               | Install current LTS from nodejs.org                                                                                    |
-| No Application Passwords section in WP | Site needs HTTPS, or a security plugin turned it off. Try a throwaway site                                             |
-| Setup says "rejected the login"        | Check the username and password. If both are right, the host or firewall strips the login header. Try a throwaway site |
-| Setup says "REST API was not found"    | WP Settings, Permalinks, choose Post name                                                                              |
-| Setup says "redirected"                | Use the final address it prints as the Site URL                                                                        |
-| Setup says Administrator               | Make an Editor user and use that one                                                                                   |
-| `/mcp` shows `wp` failed               | In the `mcp-wordpress` folder run `npm run status` and read the first error                                            |
-| Claude can't see the tools             | Quit and reopen Claude Code                                                                                            |
+| You see                                        | Fix                                                                                                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node -v` is below 22.14                       | Install current LTS from nodejs.org                                                                                                             |
+| No Application Passwords section in WP         | Site needs HTTPS, or a security plugin turned it off. Try a throwaway site                                                                      |
+| Setup says "username or app password is wrong" | Use the WP username (not the display name). Paste the app password again                                                                        |
+| Setup says "never saw the login"               | The host strips the login header. Add the line setup prints to the top of `.htaccess`, or ask the host to pass the Authorization header through |
+| Setup says "with a web page, not WordPress"    | A firewall, bot filter or staging password blocks the API. Ask the host to allow `/wp-json/`, or try a throwaway site                           |
+| Setup says "REST API was not found"            | Check the Site URL. Then WP Settings, Permalinks, choose Post name                                                                              |
+| Setup says "redirected"                        | Use the final address it prints as the Site URL                                                                                                 |
+| Setup says Administrator                       | Make an Editor user and use that one                                                                                                            |
+| `/mcp` shows `wp` failed                       | In the `mcp-wordpress` folder run `npm run status` and read the first error                                                                     |
+| Claude can't see the tools                     | Quit and reopen Claude Code                                                                                                                     |
 
 Run `npm run workshop -- --dry-run` (the `--` matters) to see what it would do without changing anything. Run it again
 any time: it updates the login in `.env` (keeping your other settings there), does not duplicate rules, and replaces its
@@ -135,6 +143,9 @@ Only if the script cannot run. In the `mcp-wordpress` folder:
 npm run setup
 claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"
 ```
+
+On Windows, replace `"$(pwd)/bin/mcp-wordpress.js"` with `"%cd%\bin\mcp-wordpress.js"` (Command Prompt) or
+`"$PWD\bin\mcp-wordpress.js"` (PowerShell).
 
 Then in Claude Code, ask it to merge the 13 `mcp__wp__...` deny rules listed in `bin/workshop.js` (`DENIED_TOOLS`) into
 the `permissions.deny` list in `~/.claude/settings.json`, keeping everything already there.

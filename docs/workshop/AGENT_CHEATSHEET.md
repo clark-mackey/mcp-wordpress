@@ -61,7 +61,8 @@ claude --version
 ```
 
 - Node below 22.14: stop. Have the person install the current LTS from nodejs.org, then open a new terminal.
-- Windows: the commands assume Mac or Linux. Use WSL, or have them pair with someone on Mac or Linux.
+- Windows: Command Prompt, PowerShell and WSL all work with `npm run workshop`. Have them `cd %USERPROFILE%` (cmd) or
+  `cd ~` (PowerShell) before cloning, so the repo is not created in `C:\WINDOWS\system32`. In cmd, right-click pastes.
 - Confirm the target site is HTTPS. WP only offers app passwords over HTTPS.
 
 ---
@@ -74,13 +75,8 @@ You cannot do this for them (it needs the WP admin login, which should not be sh
 2. Edit `ai-editor`, scroll to **Application Passwords**, name it `Claude Code`, click Add.
 3. Copy the password. WP shows it once. Spaces in it are fine.
 
-4. Test it, with the person running this themselves (the password goes in their terminal, not in your context):
-
-```bash
-curl -u 'ai-editor:PASSWORD' https://SITE/wp-json/wp/v2/users/me
-```
-
-Pass: JSON containing `"name":"ai-editor"`.
+Do not test the password with curl. `npm run workshop` in Step 3 tests it and names the fix for each failure. A curl
+command with the password in it lands in shell history, and its output tends to get pasted into chat.
 
 Ask the person to describe what they see after clicking Add. Expected (screenshot:
 `docs/workshop/images/app-password-created.png`): a green box reading "Your new password for **ai-editor** is:" followed
@@ -168,7 +164,7 @@ The 13 blocked tools: `wp_delete_page`, `wp_delete_post`, `wp_delete_media`, `wp
 After it finishes, verify **without printing the secret**:
 
 ```bash
-ls -l .env                                     # expect -rw-------
+ls -l .env                                     # expect -rw------- (Windows: dir .env)
 grep -c "WORDPRESS_APP_PASSWORD" .env          # expect 1
 grep -c "mcp__wp__" ~/.claude/settings.json    # expect 13 or more
 ```
@@ -179,23 +175,27 @@ asks.
 
 Failure map for the script:
 
-| Message                                   | Meaning and fix                                                                                                                                   |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "rejected the login (401/403)"            | Wrong username or password, or the host or a firewall strips the `Authorization` header. Redo the Step 1 checks, or try a different site          |
-| "REST API was not found (404)"            | WP Settings, Permalinks, Post name. Or the Site URL is not the WordPress address                                                                  |
-| "redirected to ..."                       | Use the final address it prints (https, and the exact www or non-www form)                                                                        |
-| "This URL is http://"                     | Use the https address. The server refuses http                                                                                                    |
-| "local or private address"                | The server refuses localhost and private IPs. Use a public https site                                                                             |
-| "This account is an Administrator"        | Make an Editor user. Never override this                                                                                                          |
-| "different MCP server named \"wp\""       | Something else already uses that name. Re-run with `--name <other>` (and use that name in the deny rules), or let the person remove it themselves |
-| "is not valid JSON"                       | `~/.claude/settings.json` is broken. Nothing was written. Have the person fix it (or fix it with them), then re-run                               |
-| "registering failed"                      | Login saved and tools blocked; only registration failed. Run the `claude mcp add` command the message prints                                      |
-| "Server did not start"                    | Run `npm run status` in the `mcp-wordpress` folder and report the first error line                                                                |
-| `/mcp` shows `wp` failed after a good run | Quit and reopen Claude Code; then `npm run status`                                                                                                |
+| Message                                   | Meaning and fix                                                                                                                                                  |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "username or app password is wrong"       | Use the WP username, not the display name. Have them paste the app password again                                                                                |
+| "never saw the login"                     | The host strips the `Authorization` header. Have them add the `SetEnvIf` line setup prints to the top of `.htaccess`, or ask the host to pass the header through |
+| "with a web page, not WordPress"          | A firewall, bot filter or staging password blocks `/wp-json/`. Ask the host to allow it, or use a throwaway site                                                 |
+| "Application Passwords are turned off"    | A security plugin or the host disabled them. Turn them back on, or use a throwaway site                                                                          |
+| "REST API was not found (404)"            | Site URL must be the Site Address visitors use. Then WP Settings, Permalinks, Post name                                                                          |
+| "redirected to ..."                       | Use the final address it prints (https, and the exact www or non-www form)                                                                                       |
+| "This URL is http://"                     | Use the https address. The server refuses http                                                                                                                   |
+| "local or private address"                | The server refuses localhost and private IPs. Use a public https site                                                                                            |
+| "This account is an Administrator"        | Make an Editor user. Never override this                                                                                                                         |
+| "different MCP server named \"wp\""       | Something else already uses that name. Re-run with `--name <other>` (and use that name in the deny rules), or let the person remove it themselves                |
+| "is not valid JSON"                       | `~/.claude/settings.json` is broken. Nothing was written. Have the person fix it (or fix it with them), then re-run                                              |
+| "registering failed"                      | Login saved and tools blocked; only registration failed. Run the `claude mcp add` command the message prints                                                     |
+| "Server did not start"                    | Run `npm run status` in the `mcp-wordpress` folder and report the first error line                                                                               |
+| `/mcp` shows `wp` failed after a good run | Quit and reopen Claude Code; then `npm run status`                                                                                                               |
 
 If the script cannot run, the manual path is `npm run setup`, then
-`claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"`, then merge the 13 deny rules by hand. Use the
-server name `wp`, or change every `mcp__wp__` prefix to match the name chosen.
+`claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"` (Windows cmd: `"%cd%\bin\mcp-wordpress.js"`;
+PowerShell: `"$PWD\bin\mcp-wordpress.js"`), then merge the 13 deny rules by hand. Use the server name `wp`, or change
+every `mcp__wp__` prefix to match the name chosen.
 
 ---
 
