@@ -9,6 +9,7 @@ import {
   SecurityValidationError,
   ToolSchemas,
   SecurityLimiter,
+  isUnsafeWordPressContent,
 } from "@/security/InputValidator.js";
 
 describe("SecuritySchemas", () => {
@@ -350,6 +351,32 @@ describe("SecuritySchemas", () => {
     it("rejects password with invalid characters", () => {
       expect(() => SecuritySchemas.appPassword.parse("abc!@#$%^&*()ABCDEFGHIJ")).toThrow();
     });
+  });
+});
+
+describe("isUnsafeWordPressContent", () => {
+  const ld = '<script type="application/ld+json">{"@type":"Organization","url":"javascript:x"}</script>';
+
+  it("allows inert JSON-LD and JSON data blocks", () => {
+    expect(isUnsafeWordPressContent(`<p>Hi</p>${ld}`)).toBe(false);
+    expect(isUnsafeWordPressContent("<script type='application/json'>{}</script>")).toBe(false);
+  });
+
+  it("still rejects executable scripts, including next to JSON-LD", () => {
+    expect(isUnsafeWordPressContent("<script>alert(1)</script>")).toBe(true);
+    expect(isUnsafeWordPressContent(`${ld}<script>alert(1)</script>`)).toBe(true);
+    expect(isUnsafeWordPressContent('<script type="text/javascript">x</script>')).toBe(true);
+  });
+
+  it("does not let a JSON-LD block hide a nested script", () => {
+    expect(isUnsafeWordPressContent('<script type="application/ld+json"><script>alert(1)</script></script>')).toBe(
+      true,
+    );
+  });
+
+  it("still rejects handlers and javascript: URLs outside JSON blocks", () => {
+    expect(isUnsafeWordPressContent(`${ld}<a onclick="x()">y</a>`)).toBe(true);
+    expect(isUnsafeWordPressContent(`${ld}<a href="javascript:x">y</a>`)).toBe(true);
   });
 });
 

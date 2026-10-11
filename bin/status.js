@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from "fs";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { dirname, join } from "path";
 import { execSync } from "child_process";
 import dotenv from "dotenv";
@@ -349,7 +349,7 @@ class WordPressStatus {
 }
 
 // Run status check if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const status = new WordPressStatus();
   status.run().catch((error) => {
     console.error("Status check failed:", error);

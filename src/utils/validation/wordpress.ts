@@ -138,7 +138,7 @@ export function validatePostParams(params: unknown, isUpdate = false): Record<st
     const content = String(typedParams.content);
     if (isUnsafeWordPressContent(content)) {
       throw new WordPressAPIError(
-        "Unsafe content (script tag, javascript: URL, or event handler)",
+        "Unsafe content (script tag, javascript: URL, or event handler). Do not remove existing scripts or embeds to get past this; ask the user to make the edit in WP admin.",
         400,
         "INVALID_PARAMETER",
       );

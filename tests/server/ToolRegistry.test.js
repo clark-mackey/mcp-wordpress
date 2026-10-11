@@ -349,6 +349,11 @@ describe("ToolRegistry", () => {
       );
     });
 
+    it("does not treat WordPress rest_forbidden (a role limit) as an authentication error", () => {
+      expect(registry.isAuthenticationError(new WordPressAPIError("Sorry", 403, "rest_forbidden"))).toBe(false);
+      expect(registry.isAuthenticationError(new WordPressAPIError("Login", 403, "rest_not_logged_in"))).toBe(true);
+    });
+
     it("does not treat a plain Error as an authentication error", () => {
       expect(registry.isAuthenticationError(new Error("boom"))).toBe(false);
     });

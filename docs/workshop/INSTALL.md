@@ -87,7 +87,16 @@ Then quit and reopen Claude Code, and run `/mcp`. `wp` should show as connected.
 
 The test page keeps all of this away from your real content. Trash it from WP admin when you are done.
 
-Every tool not on the deny list asks before it runs. Reads can be set to "always allow" the first time Claude asks.
+In Claude's normal permission mode, every tool not on the deny list asks before it runs. Reads can be set to "always
+allow" the first time Claude asks. Auto mode, skip-permissions and broad allow rules such as `mcp__wp__*` turn those
+prompts off, so leave them off for real sites.
+
+Two things to know while you work:
+
+- Pages with scripts or embeds (a HubSpot or Calendly widget, `onclick` buttons) cannot be edited through the tool. If
+  Claude offers to "remove the unsafe part", say no and make that edit in WP admin. Schema blocks
+  (`application/ld+json`) are fine.
+- Setup turns the page cache off (`DISABLE_CACHE=true` in `.env`), so Claude always reads the current page.
 
 ### What is stored where
 

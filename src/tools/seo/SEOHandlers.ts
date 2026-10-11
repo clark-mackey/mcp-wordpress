@@ -87,6 +87,15 @@ export async function handleBulkUpdateMetadata(
   const logger = LoggerFactory.tool("wp_seo_bulk_update_metadata");
 
   try {
+    // The bulk updater only simulates the write: it reports success and saves nothing. Refuse
+    // a real run rather than let Claude tell the user the metadata changed.
+    if (args.dryRun !== true) {
+      throw new Error(
+        "wp_seo_bulk_update_metadata can only preview (dryRun: true); it does not save changes to WordPress. " +
+          "Use the SEO plugin's own update tool (for example wp_seopress_update_title_description) instead.",
+      );
+    }
+
     const params: SEOToolParams = {
       postIds: args.postIds as number[],
       updates: args.updates as Partial<SEOMetadata>,

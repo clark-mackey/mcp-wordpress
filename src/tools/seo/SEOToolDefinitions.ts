@@ -82,7 +82,8 @@ export const generateMetadataTool: Tool = {
  */
 export const bulkUpdateMetadataTool: Tool = {
   name: "wp_seo_bulk_update_metadata",
-  description: "Update SEO metadata for multiple posts with progress tracking and error handling",
+  description:
+    "Preview SEO metadata for multiple posts (dryRun: true only). Saving is not implemented; use the SEO plugin's own update tool to change metadata.",
   inputSchema: {
     type: "object",
     properties: {

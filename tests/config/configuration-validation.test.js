@@ -256,6 +256,25 @@ describe("Configuration Validation Tests", () => {
       );
     });
 
+    it("accepts WordPress usernames with spaces and plus signs", () => {
+      for (const name of ["AI Editor", "dana+ai@example.com", "José"]) {
+        const config = {
+          sites: [
+            {
+              id: "site1",
+              name: "Test Site",
+              config: {
+                WORDPRESS_SITE_URL: "https://example.com",
+                WORDPRESS_USERNAME: name,
+                WORDPRESS_APP_PASSWORD: "password",
+              },
+            },
+          ],
+        };
+        expect(() => ConfigurationValidator.validateMultiSiteConfig(config)).not.toThrow();
+      }
+    });
+
     it("should reject passwords that are too short", () => {
       const invalidConfig = {
         sites: [
