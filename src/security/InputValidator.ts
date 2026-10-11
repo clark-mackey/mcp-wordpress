@@ -49,7 +49,9 @@ const EVENT_HANDLER_PATTERN =
   /\bon(?:error|load|click|dblclick|auxclick|contextmenu|mouse(?:over|out|enter|leave|down|up|move)|focus|focusin|focusout|blur|key(?:down|up|press)|submit|change|input|beforeinput|drag(?:start|end|over|enter|leave)?|drop|wheel|scroll|resize|animation(?:start|end|iteration)|transitionend|begin|end|repeat|pointer(?:down|up|move|over|out|enter|leave|cancel)|touch(?:start|end|move|cancel)|beforeunload|beforetoggle|unload|popstate|hashchange|message|copy|cut|paste|toggle|reset|select|abort|canplay|ended|pause|play|seeked|seeking|stalled|suspend|waiting|invalid|search)\s*=/i;
 // Global on purpose: used with String.replace only, never .test().
 const INERT_JSON_SCRIPT_PATTERN =
-  /<script\b[^>]*\btype\s*=\s*["']?application\/(?:ld\+)?json["']?[^>]*>[\s\S]*?<\/script\s*>/gi;
+  // `type` must be the first attribute (browsers use the first one), and only id, class and data-*
+  // may follow, so a src, a second type or "type=" inside another attribute's value never matches.
+  /<script\s+type\s*=\s*(?:"application\/(?:ld\+)?json"|'application\/(?:ld\+)?json'|application\/(?:ld\+)?json(?=[\s>]))(?:\s+(?:id|class|data-[\w-]+)\s*=\s*(?:"[^"<>]*"|'[^'<>]*'|[^\s"'<>]+))*\s*>[\s\S]*?<\/script\s*>/gi;
 const SQL_INJECTION_PATTERN = /('|(\\')|(;)|(\\x00)|(\\n)|(\\r)|(\\x1a)|(\\x22)|(\\x27)|(\\x5c)|(\\x60))/i;
 
 /**

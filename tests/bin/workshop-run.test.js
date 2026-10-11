@@ -242,10 +242,11 @@ describe("workshop run() flow", () => {
       expect(added().args).toContain(process.execPath);
     });
 
-    it("also replaces its own entry registered with the full Node path", async () => {
+    it("leaves an identical existing entry alone instead of removing and re-adding it", async () => {
       claudeJson({ type: "stdio", command: process.execPath, args: [join(root, "bin", "mcp-wordpress.js")], env: {} });
       await run([], harness());
-      expect(removed()).toBeDefined();
+      expect(removed()).toBeUndefined();
+      expect(added()).toBeUndefined();
     });
   });
 

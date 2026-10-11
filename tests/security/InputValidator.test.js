@@ -368,6 +368,22 @@ describe("isUnsafeWordPressContent", () => {
     expect(isUnsafeWordPressContent('<script type="text/javascript">x</script>')).toBe(true);
   });
 
+  it.each([
+    "<script data-type=application/json src=//evil.js></script>",
+    '<script data-x="type=application/json">alert(1)</script>',
+    '<script type="text/javascript" type="application/json">alert(1)</script>',
+    '<script type="application/json" src="x.js"></script>',
+    '<script type="application/json" data-a="1" type="text/javascript">alert(1)</script>',
+  ])("rejects a script that only looks like JSON: %s", (payload) => {
+    expect(isUnsafeWordPressContent(payload)).toBe(true);
+  });
+
+  it("allows JSON-LD with id, class or data attributes after type", () => {
+    expect(
+      isUnsafeWordPressContent('<script type="application/ld+json" class="schema" id="s1" data-x="1">{}</script>'),
+    ).toBe(false);
+  });
+
   it("does not let a JSON-LD block hide a nested script", () => {
     expect(isUnsafeWordPressContent('<script type="application/ld+json"><script>alert(1)</script></script>')).toBe(
       true,

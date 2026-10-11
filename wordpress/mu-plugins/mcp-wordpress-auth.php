@@ -14,6 +14,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// empty(), not isset(): on hosts that strip the header, WordPress's own .htaccess rule
+// (RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]) still sets it, to "".
 if (
 	empty( $_SERVER['PHP_AUTH_USER'] )
 	&& empty( $_SERVER['HTTP_AUTHORIZATION'] )

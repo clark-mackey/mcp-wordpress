@@ -220,6 +220,16 @@ describe("workshop setup helpers", () => {
       expect(result.message).toMatch(/CGIPassAuth On/);
     });
 
+    it("shows the real answer when the mu-plugin works but the password is wrong", async () => {
+      const url = await start((req, res) => {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ code: req.headers["x-mcp-wp-auth"] ? "incorrect_password" : "rest_not_logged_in" }));
+      });
+      const result = await fetchMe(url, "u", "p");
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/username or app password is wrong/);
+    });
+
     it("does not retry for a wrong password", async () => {
       let count = 0;
       const url = await start((req, res) => {
@@ -265,6 +275,11 @@ describe("workshop setup helpers", () => {
       "win32",
     );
     expect(String(out)).toBe("C:/Users/Jane Doe/x.js");
+  });
+
+  it("refuses arguments cmd.exe would change or break out of", () => {
+    expect(() => runCommand("claude", ["C:/Users/%USERNAME%/x.js"], {}, "win32")).toThrow(/cmd.exe/);
+    expect(() => runCommand("claude", ['a" & calc'], {}, "win32")).toThrow(/cmd.exe/);
   });
 
   describe("loginFailureMessage", () => {

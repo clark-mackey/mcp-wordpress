@@ -38,7 +38,13 @@ import { serializeEnvFile } from "./setup.js";
  */
 export function runCommand(command, args, options = {}, platform = process.platform) {
   if (platform !== "win32") return execFileSync(command, args, options);
-  const quoted = args.map((arg) => (/^[\w./:=@-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '\\"')}"`));
+  const quoted = args.map((arg) => {
+    if (/^[\w./:=@-]+$/.test(arg)) return arg;
+    // cmd.exe still expands %VAR% inside double quotes and has no escape for a quote inside them,
+    // so refuse rather than pass a changed or broken argument. Callers print a manual command.
+    if (/["%\r\n]/.test(arg)) throw new Error(`Cannot pass ${arg} safely through Windows cmd.exe.`);
+    return `"${arg}"`;
+  });
   return execFileSync(command, quoted, { ...options, shell: true });
 }
 
@@ -293,7 +299,10 @@ export async function fetchMe(siteUrl, username, appPassword, fetchImpl = fetch)
   const first = await fetchMeOnce(siteUrl, username, appPassword, fetchImpl, false);
   if (first.code !== "rest_not_logged_in") return first;
   const retry = await fetchMeOnce(siteUrl, username, appPassword, fetchImpl, true);
-  return retry.ok ? { ...retry, fallback: true } : first;
+  if (retry.ok) return { ...retry, fallback: true };
+  // Any other answer means the mu-plugin is installed and WordPress checked the login, so its
+  // answer (usually a wrong password) is the useful one, not "install the mu-plugin".
+  return retry.code && retry.code !== "rest_not_logged_in" ? retry : first;
 }
 
 async function fetchMeOnce(siteUrl, username, appPassword, fetchImpl, withFallback) {
@@ -567,6 +576,7 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
       (existing.command === "node" || existing.command === d.nodePath) &&
       existing.args?.[0] === entry &&
       Object.keys(existing.env ?? {}).length === 0;
+    const alreadyRegistered = sameServer && existing.command === d.nodePath && existing.args.length === 1;
     if (existing !== undefined && !sameServer) {
       fail(
         `Claude Code already has a different MCP server named "${args.name}" and this script will not overwrite it. Run again with --name <other-name>, or remove it yourself: claude mcp remove ${args.name} --scope user`,
@@ -625,18 +635,23 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
       const addArgs = ["mcp", "add", args.name, "--scope", "user", "--", d.nodePath, entry];
       const manual = `claude mcp add ${args.name} --scope user -- "${d.nodePath}" "${entry}"`;
       try {
-        if (sameServer) {
-          d.execFile("claude", ["mcp", "remove", args.name, "--scope", "user"], { stdio: "ignore" });
-          note(`Replacing your earlier "${args.name}" entry for this same folder.`);
+        if (alreadyRegistered) {
+          // Nothing to change, and remove-then-add could leave no entry at all if add failed.
+          note(`"${args.name}" is already registered for this folder; left as it is.`);
+        } else {
+          if (sameServer) {
+            d.execFile("claude", ["mcp", "remove", args.name, "--scope", "user"], { stdio: "ignore" });
+            note(`Replacing your earlier "${args.name}" entry for this same folder.`);
+          }
+          d.execFile("claude", addArgs, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
         }
-        d.execFile("claude", addArgs, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       } catch (error) {
         fail(
           `Your login is saved and the tools are blocked, but registering failed: ${error.stderr || error.message}\n  Run this yourself: ${manual}`,
         );
       }
     }
-    ok(`${args.name} -> node ${entry}`);
+    ok(`${args.name} -> ${d.nodePath} ${entry}`);
 
     // 6. Verify with the real login
     step(6, "Starting the server and calling WordPress");

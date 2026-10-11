@@ -542,6 +542,21 @@ describe("WordPressClient", () => {
       }
     });
 
+    it("never follows a redirect while the fallback header is on", async () => {
+      process.env.WORDPRESS_AUTH_HEADER_FALLBACK = "true";
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 301,
+        headers: { get: (name) => (name === "location" ? "https://elsewhere.example/wp-json/wp/v2/posts" : null) },
+      });
+      try {
+        await expect(client.get("posts")).rejects.toThrow(/redirected/);
+        expect(mockFetch.mock.calls[0][1].redirect).toBe("manual");
+      } finally {
+        delete process.env.WORDPRESS_AUTH_HEADER_FALLBACK;
+      }
+    });
+
     it("should handle custom headers", async () => {
       const customHeaders = { "X-Custom-Header": "test-value" };
 

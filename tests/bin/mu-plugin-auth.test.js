@@ -47,6 +47,12 @@ describe.skipIf(!hasPhp())("mcp-wordpress-auth mu-plugin", () => {
     expect(loadWith({ HTTP_AUTHORIZATION: basic("a:b"), HTTP_X_MCP_WP_AUTH: basic("other:x") })).toEqual([null, null]);
   });
 
+  it("still works when the host left an empty Authorization variable behind", () => {
+    expect(
+      loadWith({ HTTP_AUTHORIZATION: "", REDIRECT_HTTP_AUTHORIZATION: "", HTTP_X_MCP_WP_AUTH: basic("u:p") }),
+    ).toEqual(["u", "p"]);
+  });
+
   it("ignores malformed values", () => {
     expect(loadWith({ HTTP_X_MCP_WP_AUTH: "Bearer abc" })).toEqual([null, null]);
     expect(loadWith({ HTTP_X_MCP_WP_AUTH: "Basic !!!not-base64" })).toEqual([null, null]);
