@@ -196,16 +196,28 @@ describe("handleGenerateMetadata()", () => {
 describe("handleBulkUpdateMetadata()", () => {
   it("propagates errors from SEOTools.bulkUpdateMetadata", async () => {
     seoMock.bulkUpdateMetadata.mockRejectedValue(new Error("bulk error"));
-    await expect(handleBulkUpdateMetadata(mockClient, { postIds: [1, 2], updates: {}, site: "s1" })).rejects.toThrow(
-      "bulk error",
-    );
+    await expect(
+      handleBulkUpdateMetadata(mockClient, { postIds: [1, 2], updates: {}, dryRun: true, site: "s1" }),
+    ).rejects.toThrow("bulk error");
   });
 
   it("returns bulk operation result", async () => {
     const expected = { success: 2, failed: 0 };
     seoMock.bulkUpdateMetadata.mockResolvedValue(expected);
-    const result = await handleBulkUpdateMetadata(mockClient, { postIds: [1, 2], updates: {}, site: "s1" });
+    const result = await handleBulkUpdateMetadata(mockClient, {
+      postIds: [1, 2],
+      updates: {},
+      dryRun: true,
+      site: "s1",
+    });
     expect(result).toEqual(expected);
+  });
+
+  it("refuses a real run because the bulk updater does not save anything", async () => {
+    await expect(handleBulkUpdateMetadata(mockClient, { postIds: [1], updates: {}, site: "s1" })).rejects.toThrow(
+      "can only preview",
+    );
+    expect(seoMock.bulkUpdateMetadata).not.toHaveBeenCalled();
   });
 });
 

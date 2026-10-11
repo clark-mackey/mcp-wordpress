@@ -216,7 +216,7 @@ export class PageTools {
       // block-editor page content.
       if (createParams.content !== undefined && isUnsafeWordPressContent(createParams.content)) {
         throw new WordPressAPIError(
-          "Unsafe content (script tag, javascript: URL, or event handler)",
+          "Unsafe content (script tag, javascript: URL, or event handler). Do not remove existing scripts or embeds to get past this; ask the user to make the edit in WP admin.",
           400,
           "INVALID_PARAMETER",
         );
@@ -233,7 +233,7 @@ export class PageTools {
     try {
       if (updateParams.content !== undefined && isUnsafeWordPressContent(updateParams.content)) {
         throw new WordPressAPIError(
-          "Unsafe content (script tag, javascript: URL, or event handler)",
+          "Unsafe content (script tag, javascript: URL, or event handler). Do not remove existing scripts or embeds to get past this; ask the user to make the edit in WP admin.",
           400,
           "INVALID_PARAMETER",
         );

@@ -42,7 +42,8 @@ const UsernameSchema = z
   .string()
   .min(1, "Username is required")
   .max(60, "Username must be 60 characters or less")
-  .regex(/^[a-zA-Z0-9._@-]+$/, "Username contains invalid characters");
+  // Matches what WordPress allows: letters, digits, spaces and _ . - @ (plus + for email logins).
+  .regex(/^[\p{L}\p{N} ._@+-]+$/u, "Username contains invalid characters");
 
 const AppPasswordSchema = z
   .string()

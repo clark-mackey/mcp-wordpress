@@ -2,7 +2,7 @@
 
 import { writeFileSync, existsSync, chmodSync } from "fs";
 import { createInterface } from "readline/promises";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { dirname, join } from "path";
 import { execSync } from "child_process";
 import { Writable } from "stream";
@@ -364,7 +364,7 @@ class WordPressSetup {
 }
 
 // Run setup if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const setup = new WordPressSetup();
   setup.run();
 }

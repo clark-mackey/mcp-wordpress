@@ -799,10 +799,12 @@ export class WordPressClient implements IWordPressClient {
   ): Promise<RawResponse<T> | undefined> {
     const errorText = new TextDecoder("utf-8").decode(await response.arrayBuffer());
     let errorMessage: string;
+    let errorCode: string | undefined;
 
     try {
       const errorData = JSON.parse(errorText);
       errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+      if (typeof errorData.code === "string") errorCode = errorData.code;
     } catch {
       errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
     }
@@ -839,7 +841,9 @@ export class WordPressClient implements IWordPressClient {
       }
     }
 
-    throw new WordPressAPIError(errorMessage, response.status);
+    // Keep WordPress's own error code (for example rest_forbidden for an Editor touching
+    // settings). Without it a role limit is indistinguishable from a bad password.
+    throw new WordPressAPIError(errorMessage, response.status, errorCode);
   }
 
   private async tryIndexPhpFallback<T>(

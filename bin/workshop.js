@@ -155,6 +155,13 @@ export function mergeDeny(settings, rules) {
 }
 
 /** Environment variables that would override .env or the server's URL checks if set in the caller's shell. */
+function withoutKeys(object, keys) {
+  return Object.fromEntries(Object.entries(object ?? {}).filter(([key]) => !keys.includes(key)));
+}
+
+// Keep in step with UsernameSchema in src/config/ConfigurationSchema.ts.
+const USERNAME_PATTERN = /^[\p{L}\p{N} ._@+-]+$/u;
+
 export const OVERRIDE_ENV = /^(WORDPRESS_|MCP_WORDPRESS_|ALLOW_PRIVATE_URLS$|ALLOW_INSECURE_HTTP$)/;
 
 export function overrideNames(env) {
@@ -436,7 +443,9 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
       fail(error.message);
     }
     const { url, warning } = site;
-    const extraEnv = {};
+    // Page reads are otherwise cached for 15 minutes, which lets Claude send back a stale copy
+    // and silently overwrite an edit someone just made in wp-admin.
+    const extraEnv = { DISABLE_CACHE: "true" };
     if (new URL(url).protocol === "http:") {
       if (d.env.ALLOW_INSECURE_HTTP !== "true") {
         fail(
@@ -454,6 +463,13 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
       extraEnv.ALLOW_PRIVATE_URLS = "true";
     }
     const username = (await prompt.ask("WordPress username [ai-editor]: ")) || "ai-editor";
+    // The server refuses to start on a username its schema rejects, after setup has already
+    // saved everything. Use the server's own rule up front.
+    if (!USERNAME_PATTERN.test(username) || username.length > 60) {
+      fail(
+        "That username has characters the server does not accept. WordPress logins may use letters, numbers, spaces and _ . - @ + only (60 characters max).",
+      );
+    }
     const appPassword = await prompt.askHidden("Application password (paste it; nothing shows as you type): ");
     if (!appPassword) fail("No password entered.");
     const result = await fetchMe(url, username, appPassword, d.fetchImpl);
@@ -508,7 +524,7 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
       writeFileAtomic(
         envPath,
         serializeEnvFile({
-          ...existingEnv,
+          ...withoutKeys(existingEnv, ["ALLOW_INSECURE_HTTP", "ALLOW_PRIVATE_URLS"]),
           WORDPRESS_SITE_URL: url,
           WORDPRESS_USERNAME: username,
           WORDPRESS_APP_PASSWORD: appPassword,

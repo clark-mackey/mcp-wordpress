@@ -275,6 +275,31 @@ describe("workshop run() flow", () => {
     expect(env.ALLOW_INSECURE_HTTP).toBe("true");
   });
 
+  it("turns the page cache off so Claude never edits a stale copy", async () => {
+    await run([], harness());
+    expect(parseDotenv(readFileSync(join(root, ".env"), "utf8")).DISABLE_CACHE).toBe("true");
+  });
+
+  it("drops local-only overrides left in an old .env when the new site is public https", async () => {
+    writeFileSync(join(root, ".env"), "ALLOW_PRIVATE_URLS='true'\nALLOW_INSECURE_HTTP='true'\n", { mode: 0o600 });
+    await run([], harness({ answers: ["https://example.com", "", PASSWORD, "y"] }));
+    const env = parseDotenv(readFileSync(join(root, ".env"), "utf8"));
+    expect(env.ALLOW_PRIVATE_URLS).toBeUndefined();
+    expect(env.ALLOW_INSECURE_HTTP).toBeUndefined();
+  });
+
+  it("stops before writing anything when the username has characters the server rejects", async () => {
+    await expect(run([], harness({ answers: ["https://example.com", "bad!name", PASSWORD] }))).rejects.toThrow(
+      /username/i,
+    );
+    expect(existsSync(join(root, ".env"))).toBe(false);
+  });
+
+  it("accepts usernames with spaces", async () => {
+    await run([], harness({ answers: ["https://example.com", "AI Editor", PASSWORD] }));
+    expect(parseDotenv(readFileSync(join(root, ".env"), "utf8")).WORDPRESS_USERNAME).toBe("AI Editor");
+  });
+
   it("rejects http and private addresses unless explicitly overridden", async () => {
     await expect(run([], harness({ answers: ["http://example.com", "", PASSWORD] }))).rejects.toThrow(/http/);
     await expect(run([], harness({ answers: ["https://192.168.1.5", "", PASSWORD] }))).rejects.toThrow(/private/);

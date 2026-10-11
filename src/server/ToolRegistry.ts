@@ -357,7 +357,7 @@ export class ToolRegistry {
         return propName !== undefined && WORDPRESS_CONTENT_PARAM_NAMES.has(propName)
           ? schema.refine(
               (val) => !isUnsafeWordPressContent(val),
-              "Unsafe content: script tag, javascript: URL, or event handler attribute",
+              "Unsafe content: script tag, javascript: URL, or event handler attribute. Do not remove existing scripts or embeds to get past this; ask the user to make the edit in WP admin.",
             )
           : schema.refine(
               (val) => !isUnsafePlainText(val),
@@ -392,7 +392,7 @@ export class ToolRegistry {
         return param.name !== undefined && WORDPRESS_CONTENT_PARAM_NAMES.has(param.name)
           ? schema.refine(
               (val) => !isUnsafeWordPressContent(val),
-              "Unsafe content: script tag, javascript: URL, or event handler attribute",
+              "Unsafe content: script tag, javascript: URL, or event handler attribute. Do not remove existing scripts or embeds to get past this; ask the user to make the edit in WP admin.",
             )
           : schema.refine(
               (val) => !isUnsafePlainText(val),
@@ -445,6 +445,9 @@ export class ToolRegistry {
   private isAuthenticationError(error: unknown): boolean {
     if (error instanceof AuthenticationError) return true;
     if (!(error instanceof WordPressAPIError)) return false;
-    return error.statusCode === 401 || (error.statusCode === 403 && error.code === undefined);
+    if (error.statusCode === 401) return true;
+    // A 403 means the login worked but the account may not do this. Only a bare 403 (no code at
+    // all) or WordPress's own "not logged in" codes point at the credentials.
+    return error.statusCode === 403 && (error.code === undefined || error.code === "rest_not_logged_in");
   }
 }

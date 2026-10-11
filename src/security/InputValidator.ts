@@ -47,6 +47,9 @@ const DATA_URL_PATTERN = /\bdata:[^\s,]*,/i;
 // "common" handlers only.
 const EVENT_HANDLER_PATTERN =
   /\bon(?:error|load|click|dblclick|auxclick|contextmenu|mouse(?:over|out|enter|leave|down|up|move)|focus|focusin|focusout|blur|key(?:down|up|press)|submit|change|input|beforeinput|drag(?:start|end|over|enter|leave)?|drop|wheel|scroll|resize|animation(?:start|end|iteration)|transitionend|begin|end|repeat|pointer(?:down|up|move|over|out|enter|leave|cancel)|touch(?:start|end|move|cancel)|beforeunload|beforetoggle|unload|popstate|hashchange|message|copy|cut|paste|toggle|reset|select|abort|canplay|ended|pause|play|seeked|seeking|stalled|suspend|waiting|invalid|search)\s*=/i;
+// Global on purpose: used with String.replace only, never .test().
+const INERT_JSON_SCRIPT_PATTERN =
+  /<script\b[^>]*\btype\s*=\s*["']?application\/(?:ld\+)?json["']?[^>]*>[\s\S]*?<\/script\s*>/gi;
 const SQL_INJECTION_PATTERN = /('|(\\')|(;)|(\\x00)|(\\n)|(\\r)|(\\x1a)|(\\x22)|(\\x27)|(\\x5c)|(\\x60))/i;
 
 /**
@@ -71,11 +74,17 @@ export function isUnsafePlainText(value: string): boolean {
  * and carries no length cap of its own — callers apply their own maxLength.
  */
 export function isUnsafeWordPressContent(value: string): boolean {
+  // JSON-LD / JSON data blocks never execute, so they are removed before testing. Without
+  // this, any page carrying schema markup could not be edited at all, and the obvious
+  // workaround (dropping the block) silently deletes the schema. The lazy match ends at the
+  // first `</script>`, the same place a browser ends the element, so a following executable
+  // <script> is still tested and rejected.
+  const checked = value.replace(INERT_JSON_SCRIPT_PATTERN, "");
   return (
-    SCRIPT_TAG_PATTERN.test(value) ||
-    SCRIPT_END_PATTERN.test(value) ||
-    JAVASCRIPT_URL_PATTERN.test(value) ||
-    EVENT_HANDLER_PATTERN.test(value)
+    SCRIPT_TAG_PATTERN.test(checked) ||
+    SCRIPT_END_PATTERN.test(checked) ||
+    JAVASCRIPT_URL_PATTERN.test(checked) ||
+    EVENT_HANDLER_PATTERN.test(checked)
   );
 }
 
