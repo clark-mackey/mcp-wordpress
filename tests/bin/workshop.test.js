@@ -12,6 +12,9 @@ import {
   checkAccount,
   mergeDeny,
   fetchMe,
+  loginFailureMessage,
+  runCommand,
+  USER_AGENT,
 } from "../../bin/workshop.js";
 
 const srcTools = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "tools");
@@ -151,7 +154,7 @@ describe("workshop setup helpers", () => {
     it("sends the app password as basic auth and returns the account", async () => {
       let seen;
       const url = await start((req, res) => {
-        seen = { path: req.url, auth: req.headers.authorization };
+        seen = { path: req.url, auth: req.headers.authorization, agent: req.headers["user-agent"] };
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ name: "AI Editor", roles: ["editor"] }));
       });
@@ -160,10 +163,11 @@ describe("workshop setup helpers", () => {
       expect(result.me.roles).toEqual(["editor"]);
       expect(seen.path).toBe("/wp-json/wp/v2/users/me?context=edit");
       expect(seen.auth).toBe(`Basic ${Buffer.from("ai-editor:abcd efgh").toString("base64")}`);
+      expect(seen.agent).toBe(USER_AGENT);
     });
 
     it.each([
-      [401, /rejected the login/],
+      [401, /refused the login/],
       [404, /Permalinks/],
       [500, /HTTP 500/],
     ])("explains HTTP %i", async (status, message) => {
@@ -174,6 +178,19 @@ describe("workshop setup helpers", () => {
       const result = await fetchMe(url, "u", "p");
       expect(result.ok).toBe(false);
       expect(result.message).toMatch(message);
+    });
+
+    it.each([
+      [401, { code: "incorrect_password" }, /username or app password is wrong/],
+      [401, { code: "rest_not_logged_in" }, /SetEnvIf Authorization/],
+      [401, { code: "application_passwords_disabled" }, /turned off/],
+      [403, null, /web page, not WordPress/],
+    ])("names the fix for a %i %j", async (status, body, message) => {
+      const url = await start((req, res) => {
+        res.statusCode = status;
+        res.end(body ? JSON.stringify(body) : "<html>Forbidden</html>");
+      });
+      expect((await fetchMe(url, "u", "p")).message).toMatch(message);
     });
 
     it("explains a redirect instead of following it (fetch drops the password on redirect)", async () => {
@@ -191,6 +208,32 @@ describe("workshop setup helpers", () => {
       const url = await start((req, res) => res.end("<html>hello</html>"));
       expect((await fetchMe(url, "u", "p")).message).toMatch(/not with WordPress JSON/);
       expect((await fetchMe("http://127.0.0.1:1", "u", "p")).message).toMatch(/Could not reach/);
+    });
+  });
+
+  describe("runCommand", () => {
+    it("runs directly off Windows", () => {
+      expect(String(runCommand("node", ["-e", "process.stdout.write('ok')"], { encoding: "utf8" }, "linux"))).toBe(
+        "ok",
+      );
+    });
+  });
+
+  it("quotes arguments with spaces when it has to go through a shell (Windows)", () => {
+    const out = runCommand(
+      "node",
+      ["-e", "process.stdout.write(process.argv[1])", "C:/Users/Jane Doe/x.js"],
+      { encoding: "utf8" },
+      "win32",
+    );
+    expect(String(out)).toBe("C:/Users/Jane Doe/x.js");
+  });
+
+  describe("loginFailureMessage", () => {
+    it("falls back to WordPress's own message for unknown codes", () => {
+      expect(loginFailureMessage(403, { code: "wordfence_blocked", message: "Blocked" })).toMatch(
+        /wordfence_blocked.*Blocked/,
+      );
     });
   });
 });
