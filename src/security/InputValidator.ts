@@ -78,8 +78,14 @@ export function isUnsafeWordPressContent(value: string): boolean {
   // this, any page carrying schema markup could not be edited at all, and the obvious
   // workaround (dropping the block) silently deletes the schema. The lazy match ends at the
   // first `</script>`, the same place a browser ends the element, so a following executable
-  // <script> is still tested and rejected.
-  const checked = value.replace(INERT_JSON_SCRIPT_PATTERN, "");
+  // <script> is still tested and rejected. Removal repeats until nothing changes, so pieces
+  // joined by one pass are checked again (removal only ever leaves more to reject).
+  let checked = value;
+  let previous;
+  do {
+    previous = checked;
+    checked = checked.replace(INERT_JSON_SCRIPT_PATTERN, "");
+  } while (checked !== previous);
   return (
     SCRIPT_TAG_PATTERN.test(checked) ||
     SCRIPT_END_PATTERN.test(checked) ||
