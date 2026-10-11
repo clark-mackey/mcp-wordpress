@@ -135,7 +135,7 @@ describe("workshop run() flow", () => {
       "--scope",
       "user",
       "--",
-      "node",
+      process.execPath,
       join(root, "bin", "mcp-wordpress.js"),
     ]);
   });
@@ -236,7 +236,13 @@ describe("workshop run() flow", () => {
       await run([], harness());
 
       expect(removed().args).toEqual(["mcp", "remove", "wp", "--scope", "user"]);
-      expect(added()).toBeDefined();
+      expect(added().args).toContain(process.execPath);
+    });
+
+    it("also replaces its own entry registered with the full Node path", async () => {
+      claudeJson({ type: "stdio", command: process.execPath, args: [join(root, "bin", "mcp-wordpress.js")], env: {} });
+      await run([], harness());
+      expect(removed()).toBeDefined();
     });
   });
 

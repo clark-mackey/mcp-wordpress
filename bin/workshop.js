@@ -320,7 +320,7 @@ export async function fetchMe(siteUrl, username, appPassword, fetchImpl = fetch)
  */
 export function probeServer({ rootDir = defaultRootDir, env = process.env, callTool, timeoutMs = 30000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [join(rootDir, "bin", "mcp-wordpress.js")], {
+    const child = spawn(process.execPath, [join(rootDir, "bin", "mcp-wordpress.js")], {
       cwd: rootDir,
       env: cleanEnv(env),
       stdio: ["pipe", "pipe", "pipe"],
@@ -430,6 +430,7 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
     homeDir: homedir(),
     env: process.env,
     nodeVersion: process.version,
+    nodePath: process.execPath,
     fetchImpl: fetch,
     execFile: runCommand,
     probe: probeServer,
@@ -539,7 +540,7 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
     const existing = findRegistration(d.homeDir, args.name);
     const sameServer =
       existing &&
-      existing.command === "node" &&
+      (existing.command === "node" || existing.command === d.nodePath) &&
       existing.args?.[0] === entry &&
       Object.keys(existing.env ?? {}).length === 0;
     if (existing !== undefined && !sameServer) {
@@ -595,8 +596,10 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
     // 5. Register
     step(5, `Registering the server with Claude Code as "${args.name}"`);
     if (!args.dryRun) {
-      const addArgs = ["mcp", "add", args.name, "--scope", "user", "--", "node", entry];
-      const manual = `claude mcp add ${args.name} --scope user -- node "${entry}"`;
+      // The exact Node running this setup, not whatever "node" Claude Code finds on its own PATH
+      // (nvm, IDE and desktop launches can resolve an older one, and /mcp then shows "failed").
+      const addArgs = ["mcp", "add", args.name, "--scope", "user", "--", d.nodePath, entry];
+      const manual = `claude mcp add ${args.name} --scope user -- "${d.nodePath}" "${entry}"`;
       try {
         if (sameServer) {
           d.execFile("claude", ["mcp", "remove", args.name, "--scope", "user"], { stdio: "ignore" });

@@ -4,6 +4,7 @@ import type { MCPToolSchema } from "@/types/mcp.js";
 import { CreatePageRequest, PostQueryParams as PageQueryParams, UpdatePageRequest } from "@/types/wordpress.js";
 import { isPermissionError, preserveToolError } from "@/utils/error.js";
 import { isUnsafeWordPressContent } from "@/security/InputValidator.js";
+import { formatModified } from "./format.js";
 import { parseId, parseIdAndForce, toolParams } from "./params.js";
 
 /**
@@ -164,7 +165,12 @@ export class PageTools {
       }
       const content =
         `Found ${pages.length} pages:\n\n` +
-        pages.map((p) => `- ID ${p.id}: **${p.title.rendered}** (${p.status})\n  Link: ${p.link}`).join("\n");
+        pages
+          .map(
+            (p) =>
+              `- ID ${p.id}: **${p.title.rendered}** (${p.status})\n  Link: ${p.link}\n  Last modified: ${formatModified(p)}`,
+          )
+          .join("\n");
       return content;
     } catch (_error) {
       preserveToolError("Failed to list pages", _error);

@@ -784,29 +784,9 @@ export class SEOWordPressClient extends WordPressClient {
         result.canReadMetadata = true;
       }
 
-      // Test writing metadata (if we have posts to test with)
-      if (testPosts && testPosts.length > 0 && result.canReadMetadata) {
-        try {
-          const testPost = testPosts[0];
-          const originalSEO = await this.getSEOMetadata(testPost.id);
-
-          // Make a small test update
-          const testMetadata: Partial<SEOMetadata> = {
-            description: (originalSEO.description || "") + " [TEST]",
-          };
-
-          await this.updateSEOMetadata(testPost.id, testMetadata);
-
-          // Restore original data
-          await this.updateSEOMetadata(testPost.id, {
-            description: originalSEO.description || "",
-          });
-
-          result.canWriteMetadata = true;
-        } catch (_error) {
-          result.errors?.push(`Failed to write SEO data: ${(_error as Error).message}`);
-        }
-      }
+      // Write access is deliberately not tested: the old check edited the newest published
+      // post's meta description and set it back, which bumped a live post's modified date.
+      result.errors?.push("Write access not tested: this check never writes to live posts.");
 
       this.logger.info("SEO integration test completed", result);
       return result;
