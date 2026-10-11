@@ -52,10 +52,12 @@ It asks for three things: your site URL, the username (press Enter for `ai-edito
 it; nothing shows as you type, that is normal). Then it:
 
 1. Tests the login and **refuses an Administrator account**
-2. Saves the login to `.env` (owner-only file inside the `mcp-wordpress` folder)
-3. Registers the server with Claude Code as `wp`
-4. Adds 13 tools to Claude's deny list (all deletes, user and app-password tools, site settings)
-5. Starts the server to confirm it works
+2. Checks everything that could fail (your Claude settings file, an existing `wp` entry) **before it writes anything**
+3. Saves the login to `.env` (owner-only file inside the `mcp-wordpress` folder)
+4. Adds 13 tools to Claude's deny list (all deletes, user and app-password tools, site settings), **before** the server
+   is registered
+5. Registers the server with Claude Code as `wp`
+6. Starts the server and calls WordPress as your `ai-editor` user to confirm it works
 
 Then quit and reopen Claude Code, and run `/mcp`. `wp` should show as connected.
 
@@ -93,8 +95,11 @@ Every tool not on the deny list asks before it runs. Reads can be set to "always
 | `/mcp` shows `wp` failed               | In the `mcp-wordpress` folder run `npm run status` and read the first error                                            |
 | Claude can't see the tools             | Quit and reopen Claude Code                                                                                            |
 
-Run `npm run workshop -- --dry-run` to see what it would do without changing anything. Run it again any time: it
-replaces the old `wp` entry and does not duplicate rules.
+Run `npm run workshop -- --dry-run` (the `--` matters) to see what it would do without changing anything. Run it again
+any time: it updates the login in `.env` (keeping your other settings there), does not duplicate rules, and replaces its
+own earlier `wp` entry. It will not overwrite a different server that is already named `wp`: use `--name <other-name>`
+instead. Old copies of `.env` and `settings.json` are kept next to the originals as `.bak-<time>` (owner-only; delete
+them when you are done).
 
 ### Doing Step 3 by hand
 
