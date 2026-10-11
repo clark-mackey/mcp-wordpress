@@ -193,6 +193,54 @@ describe("workshop setup helpers", () => {
       expect((await fetchMe(url, "u", "p")).message).toMatch(message);
     });
 
+    it("retries with the fallback header when the host strips Authorization, and reports it", async () => {
+      const seen = [];
+      const url = await start((req, res) => {
+        seen.push(req.headers["x-mcp-wp-auth"]);
+        if (req.headers["x-mcp-wp-auth"]) {
+          res.setHeader("Content-Type", "application/json");
+          return res.end(JSON.stringify({ name: "AI Editor", roles: ["editor"] }));
+        }
+        res.statusCode = 401;
+        res.end(JSON.stringify({ code: "rest_not_logged_in" }));
+      });
+      const result = await fetchMe(url, "u", "p");
+      expect(result).toMatchObject({ ok: true, fallback: true });
+      expect(seen).toEqual([undefined, `Basic ${Buffer.from("u:p").toString("base64")}`]);
+    });
+
+    it("points to the mu-plugin when the fallback header is not picked up either", async () => {
+      const url = await start((req, res) => {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ code: "rest_not_logged_in" }));
+      });
+      const result = await fetchMe(url, "u", "p");
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/mu-plugins/);
+      expect(result.message).toMatch(/CGIPassAuth On/);
+    });
+
+    it("shows the real answer when the mu-plugin works but the password is wrong", async () => {
+      const url = await start((req, res) => {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ code: req.headers["x-mcp-wp-auth"] ? "incorrect_password" : "rest_not_logged_in" }));
+      });
+      const result = await fetchMe(url, "u", "p");
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/username or app password is wrong/);
+    });
+
+    it("does not retry for a wrong password", async () => {
+      let count = 0;
+      const url = await start((req, res) => {
+        count++;
+        res.statusCode = 401;
+        res.end(JSON.stringify({ code: "incorrect_password" }));
+      });
+      await fetchMe(url, "u", "p");
+      expect(count).toBe(1);
+    });
+
     it("explains a redirect instead of following it (fetch drops the password on redirect)", async () => {
       const url = await start((req, res) => {
         res.statusCode = 301;
@@ -227,6 +275,11 @@ describe("workshop setup helpers", () => {
       "win32",
     );
     expect(String(out)).toBe("C:/Users/Jane Doe/x.js");
+  });
+
+  it("refuses arguments cmd.exe would change or break out of", () => {
+    expect(() => runCommand("claude", ["C:/Users/%USERNAME%/x.js"], {}, "win32")).toThrow(/cmd.exe/);
+    expect(() => runCommand("claude", ['a" & calc'], {}, "win32")).toThrow(/cmd.exe/);
   });
 
   describe("loginFailureMessage", () => {

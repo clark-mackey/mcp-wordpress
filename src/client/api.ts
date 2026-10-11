@@ -67,6 +67,9 @@ import { CommentsOperations } from "./operations/comments.js";
 import { TaxonomiesOperations } from "./operations/taxonomies.js";
 import { SiteOperations } from "./operations/site.js";
 
+/** Header the companion mu-plugin reads when the host strips Authorization. Keep in step with bin/workshop.js. */
+export const AUTH_FALLBACK_HEADER = "X-MCP-WP-Auth";
+
 /**
  * WordPress REST API Client
  *
@@ -377,18 +380,24 @@ export class WordPressClient implements IWordPressClient {
    */
   private addAuthHeaders(headers: Record<string, string>): void {
     const method = this.auth.method?.toLowerCase() as AuthMethod;
+    // Some hosts strip the Authorization header before PHP sees it. With the companion mu-plugin
+    // (wordpress/mu-plugins/mcp-wordpress-auth.php) installed, the same Basic credentials are
+    // read from this header instead. Opt-in, because it puts the login in a second header.
+    const sendFallback = process.env.WORDPRESS_AUTH_HEADER_FALLBACK === "true";
 
     switch (method) {
       case "app-password":
         if (this.auth.username && this.auth.appPassword) {
           const credentials = Buffer.from(`${this.auth.username}:${this.auth.appPassword}`).toString("base64");
           headers["Authorization"] = `Basic ${credentials}`;
+          if (sendFallback) headers[AUTH_FALLBACK_HEADER] = `Basic ${credentials}`;
         }
         break;
       case "basic":
         if (this.auth.username && this.auth.password) {
           const credentials = Buffer.from(`${this.auth.username}:${this.auth.password}`).toString("base64");
           headers["Authorization"] = `Basic ${credentials}`;
+          if (sendFallback) headers[AUTH_FALLBACK_HEADER] = `Basic ${credentials}`;
         }
         break;
 
@@ -602,6 +611,9 @@ export class WordPressClient implements IWordPressClient {
     };
 
     this.addAuthHeaders(baseHeaders);
+    // fetch strips Authorization on a cross-origin redirect but forwards custom headers, so with
+    // the fallback header on, a redirect would hand the app password to the redirect target.
+    const blockRedirects = AUTH_FALLBACK_HEADER in baseHeaders;
 
     const requestTimeout = options.timeout || this.timeout;
     const configuredRetries =
@@ -631,6 +643,7 @@ export class WordPressClient implements IWordPressClient {
         method,
         headers,
         signal: controller.signal,
+        ...(blockRedirects ? { redirect: "manual" as const } : {}),
       };
 
       if (data && ["POST", "PUT", "PATCH"].includes(method)) {
@@ -641,6 +654,15 @@ export class WordPressClient implements IWordPressClient {
         log.debug(`API Request: ${method} ${url}${attempt > 0 ? ` (attempt ${attempt + 1})` : ""}`);
 
         const response = await fetch(url, fetchOptions);
+
+        if (blockRedirects && response.status >= 300 && response.status < 400 && response.status !== 304) {
+          throw new WordPressAPIError(
+            `The site redirected to ${response.headers.get("location") ?? "another address"}. ` +
+              "Run npm run workshop again with that final address as the Site URL.",
+            response.status,
+            "REDIRECT_BLOCKED",
+          );
+        }
 
         // 304 Not Modified is a valid outcome of a conditional GET (caller
         // sent If-None-Match/If-Modified-Since), not an error — the cache

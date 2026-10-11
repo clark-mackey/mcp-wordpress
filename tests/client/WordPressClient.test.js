@@ -528,6 +528,35 @@ describe("WordPressClient", () => {
       );
     });
 
+    it("sends the login header fallback only when WORDPRESS_AUTH_HEADER_FALLBACK=true", async () => {
+      await client.get("posts");
+      expect(mockFetch.mock.calls[0][1].headers["X-MCP-WP-Auth"]).toBeUndefined();
+
+      process.env.WORDPRESS_AUTH_HEADER_FALLBACK = "true";
+      try {
+        await client.get("pages");
+        const headers = mockFetch.mock.calls[1][1].headers;
+        expect(headers["X-MCP-WP-Auth"]).toBe(headers.Authorization);
+      } finally {
+        delete process.env.WORDPRESS_AUTH_HEADER_FALLBACK;
+      }
+    });
+
+    it("never follows a redirect while the fallback header is on", async () => {
+      process.env.WORDPRESS_AUTH_HEADER_FALLBACK = "true";
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 301,
+        headers: { get: (name) => (name === "location" ? "https://elsewhere.example/wp-json/wp/v2/posts" : null) },
+      });
+      try {
+        await expect(client.get("posts")).rejects.toThrow(/redirected/);
+        expect(mockFetch.mock.calls[0][1].redirect).toBe("manual");
+      } finally {
+        delete process.env.WORDPRESS_AUTH_HEADER_FALLBACK;
+      }
+    });
+
     it("should handle custom headers", async () => {
       const customHeaders = { "X-Custom-Header": "test-value" };
 
