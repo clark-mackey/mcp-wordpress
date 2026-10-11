@@ -49,6 +49,10 @@ export function runCommand(command, args, options = {}, platform = process.platf
  */
 export const USER_AGENT = "Mozilla/5.0 (compatible; mcp-wordpress; +https://github.com/clark-mackey/mcp-wordpress)";
 
+/** Header the mu-plugin reads when the host strips Authorization. Keep in step with src/client/api.ts. */
+export const AUTH_FALLBACK_HEADER = "X-MCP-WP-Auth";
+const MU_PLUGIN = "wordpress/mu-plugins/mcp-wordpress-auth.php";
+
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MIN_NODE = "22.14.0";
 
@@ -268,24 +272,37 @@ export function loginFailureMessage(status, body) {
   }
   if (code === "rest_not_logged_in") {
     return [
-      "WordPress never saw the login: the host is stripping the Authorization header.",
-      "  Fix: add this line at the top of the site's .htaccess file (or ask the host to pass the Authorization header through):",
-      '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
-      "  Then run this again.",
+      "WordPress never saw the login: the host is stripping the Authorization header. Any one of these fixes it:",
+      `  1. Easiest: copy ${MU_PLUGIN} from this folder into the site's wp-content/mu-plugins/ folder`,
+      "     (create it if missing), then run this again. Setup detects it and turns it on.",
+      "  2. Add these lines at the very top of the .htaccess next to wp-config.php:",
+      "       CGIPassAuth On",
+      '       SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+      "  3. Ask the host to pass the HTTP Authorization header through to PHP.",
     ].join("\n");
   }
   return `WordPress refused the login (${status}${code ? `, ${code}` : ""}): ${body.message ?? "no details"}. A security plugin may be blocking the REST API.`;
 }
 
-/** Calls /users/me with the app password and turns every failure into a plain-English message. */
+/**
+ * Calls /users/me with the app password and turns every failure into a plain-English message.
+ * When the host strips the Authorization header, it retries once with the fallback header the
+ * mu-plugin reads; { fallback: true } on success means the server must send that header too.
+ */
 export async function fetchMe(siteUrl, username, appPassword, fetchImpl = fetch) {
+  const first = await fetchMeOnce(siteUrl, username, appPassword, fetchImpl, false);
+  if (first.code !== "rest_not_logged_in") return first;
+  const retry = await fetchMeOnce(siteUrl, username, appPassword, fetchImpl, true);
+  return retry.ok ? { ...retry, fallback: true } : first;
+}
+
+async function fetchMeOnce(siteUrl, username, appPassword, fetchImpl, withFallback) {
   const auth = Buffer.from(`${username}:${appPassword}`).toString("base64");
+  const headers = { Authorization: `Basic ${auth}`, Accept: "application/json", "User-Agent": USER_AGENT };
+  if (withFallback) headers[AUTH_FALLBACK_HEADER] = `Basic ${auth}`;
   let response;
   try {
-    response = await fetchImpl(`${siteUrl}/wp-json/wp/v2/users/me?context=edit`, {
-      headers: { Authorization: `Basic ${auth}`, Accept: "application/json", "User-Agent": USER_AGENT },
-      redirect: "manual",
-    });
+    response = await fetchImpl(`${siteUrl}/wp-json/wp/v2/users/me?context=edit`, { headers, redirect: "manual" });
   } catch (error) {
     return { ok: false, message: `Could not reach ${siteUrl}: ${error.cause?.code ?? error.message}` };
   }
@@ -296,7 +313,8 @@ export async function fetchMe(siteUrl, username, appPassword, fetchImpl = fetch)
     };
   }
   if (response.status === 401 || response.status === 403) {
-    return { ok: false, message: loginFailureMessage(response.status, await readJson(response)) };
+    const body = await readJson(response);
+    return { ok: false, code: body?.code, message: loginFailureMessage(response.status, body) };
   }
   if (response.status === 404) {
     return {
@@ -520,6 +538,12 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
     if (!appPassword) fail("No password entered.");
     const result = await fetchMe(url, username, appPassword, d.fetchImpl);
     if (!result.ok) fail(result.message);
+    if (result.fallback) {
+      extraEnv.WORDPRESS_AUTH_HEADER_FALLBACK = "true";
+      note(
+        "This host strips the Authorization header, but the mcp-wordpress-auth mu-plugin is installed, so the login goes through it.",
+      );
+    }
     const verdict = checkAccount(result.me, { allowAdmin: args.allowAdmin });
     if (verdict.level === "block") fail(verdict.message);
     ok(`Logged in as "${result.me.name}". ${verdict.message}`);
@@ -570,7 +594,7 @@ export async function run(argv = process.argv.slice(2), overrides = {}) {
       writeFileAtomic(
         envPath,
         serializeEnvFile({
-          ...withoutKeys(existingEnv, ["ALLOW_INSECURE_HTTP", "ALLOW_PRIVATE_URLS"]),
+          ...withoutKeys(existingEnv, ["ALLOW_INSECURE_HTTP", "ALLOW_PRIVATE_URLS", "WORDPRESS_AUTH_HEADER_FALLBACK"]),
           WORDPRESS_SITE_URL: url,
           WORDPRESS_USERNAME: username,
           WORDPRESS_APP_PASSWORD: appPassword,

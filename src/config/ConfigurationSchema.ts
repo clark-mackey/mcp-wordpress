@@ -167,6 +167,7 @@ const EnvironmentExtras = {
   NODE_ENV: z.enum(["development", "production", "test", "dxt", "ci"]).optional(),
   DEBUG: z.string().optional(),
   DISABLE_CACHE: z.string().optional(),
+  WORDPRESS_AUTH_HEADER_FALLBACK: z.string().optional(),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).optional(),
 };
 

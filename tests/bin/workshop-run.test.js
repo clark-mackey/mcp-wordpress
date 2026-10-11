@@ -60,6 +60,7 @@ describe("workshop run() flow", () => {
     addFails = false,
     probeResult,
     env = {},
+    fetchImpl,
   } = {}) {
     const queue = [...answers];
     const prompter = {
@@ -88,12 +89,14 @@ describe("workshop run() flow", () => {
       prompter,
       execFile,
       log: (line) => logs.push(line),
-      fetchImpl: async () => ({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => me,
-      }),
+      fetchImpl:
+        fetchImpl ??
+        (async () => ({
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => me,
+        })),
       probe: async (options) => {
         calls.push({ probe: options });
         return (
@@ -279,6 +282,25 @@ describe("workshop run() flow", () => {
     const env = parseDotenv(readFileSync(join(root, ".env"), "utf8"));
     expect(env.ALLOW_PRIVATE_URLS).toBe("true");
     expect(env.ALLOW_INSECURE_HTTP).toBe("true");
+  });
+
+  it("turns on the login header fallback when the host strips Authorization but the mu-plugin answers", async () => {
+    const fetchImpl = async (_url, { headers }) =>
+      headers["X-MCP-WP-Auth"]
+        ? { status: 200, ok: true, headers: { get: () => null }, json: async () => EDITOR }
+        : {
+            status: 401,
+            ok: false,
+            headers: { get: () => null },
+            text: async () => JSON.stringify({ code: "rest_not_logged_in" }),
+          };
+    await run([], harness({ fetchImpl }));
+    expect(parseDotenv(readFileSync(join(root, ".env"), "utf8")).WORDPRESS_AUTH_HEADER_FALLBACK).toBe("true");
+  });
+
+  it("leaves the fallback off on a normal host", async () => {
+    await run([], harness());
+    expect(parseDotenv(readFileSync(join(root, ".env"), "utf8")).WORDPRESS_AUTH_HEADER_FALLBACK).toBeUndefined();
   });
 
   it("turns the page cache off so Claude never edits a stale copy", async () => {

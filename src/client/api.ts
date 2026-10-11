@@ -67,6 +67,9 @@ import { CommentsOperations } from "./operations/comments.js";
 import { TaxonomiesOperations } from "./operations/taxonomies.js";
 import { SiteOperations } from "./operations/site.js";
 
+/** Header the companion mu-plugin reads when the host strips Authorization. Keep in step with bin/workshop.js. */
+export const AUTH_FALLBACK_HEADER = "X-MCP-WP-Auth";
+
 /**
  * WordPress REST API Client
  *
@@ -377,18 +380,24 @@ export class WordPressClient implements IWordPressClient {
    */
   private addAuthHeaders(headers: Record<string, string>): void {
     const method = this.auth.method?.toLowerCase() as AuthMethod;
+    // Some hosts strip the Authorization header before PHP sees it. With the companion mu-plugin
+    // (wordpress/mu-plugins/mcp-wordpress-auth.php) installed, the same Basic credentials are
+    // read from this header instead. Opt-in, because it puts the login in a second header.
+    const sendFallback = process.env.WORDPRESS_AUTH_HEADER_FALLBACK === "true";
 
     switch (method) {
       case "app-password":
         if (this.auth.username && this.auth.appPassword) {
           const credentials = Buffer.from(`${this.auth.username}:${this.auth.appPassword}`).toString("base64");
           headers["Authorization"] = `Basic ${credentials}`;
+          if (sendFallback) headers[AUTH_FALLBACK_HEADER] = `Basic ${credentials}`;
         }
         break;
       case "basic":
         if (this.auth.username && this.auth.password) {
           const credentials = Buffer.from(`${this.auth.username}:${this.auth.password}`).toString("base64");
           headers["Authorization"] = `Basic ${credentials}`;
+          if (sendFallback) headers[AUTH_FALLBACK_HEADER] = `Basic ${credentials}`;
         }
         break;
 
