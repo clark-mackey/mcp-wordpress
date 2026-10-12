@@ -4,7 +4,7 @@
  */
 
 import type { ToolDefinition } from "@/server/ToolRegistry.js";
-import { PerformanceMonitor, type PerformanceMetrics } from "@/performance/PerformanceMonitor.js";
+import { hasCacheActivity, PerformanceMonitor, type PerformanceMetrics } from "@/performance/PerformanceMonitor.js";
 import { MetricsCollector } from "@/performance/MetricsCollector.js";
 import {
   PerformanceAnalytics,
@@ -23,7 +23,12 @@ import {
   calculateCacheEfficiency,
   formatUptime,
   parseTimeframe,
+  describeHistoryWindow,
+  HISTORY_RETENTION_MS,
   processHistoricalDataForChart,
+  downsample,
+  formatHitRate,
+  MAX_HISTORY_POINTS,
   calculateAverage,
   formatBenchmarkStatus,
   getBenchmarkImprovementDescription,
@@ -31,6 +36,8 @@ import {
   formatAlertMessage,
   formatAnomalyDescription,
   calculateAlertStatus,
+  calculateActiveAlertStatus,
+  worseAlertStatus,
   formatPriority,
   formatEffort,
   calculateEstimatedImpact,
@@ -38,6 +45,13 @@ import {
   createSummaryReport,
   type PerformanceAlert,
 } from "./PerformanceHelpers.js";
+
+// The session-wide cache figures sum every site's cache counters; wp_cache_stats and `siteSpecific` show one site.
+const CACHE_SCOPE_ALL_SITES = "all sites combined, since the server started";
+// Benchmarks, recommendations and exports read the same session-wide metrics.
+const CURRENT_METRICS_SCOPE = "current metrics, all sites combined (counters since the server started)";
+// PerformanceAnalytics keeps its own 24-hour history for trends, anomalies and predictions.
+const ANALYTICS_SCOPE = "all sites combined, from the analytics' own 24-hour history whatever the timeframe";
 
 /**
  * Performance Tools Class
@@ -58,6 +72,7 @@ export default class PerformanceTools {
     this.monitor = new PerformanceMonitor({
       enableRealTimeMonitoring: true,
       enableHistoricalData: true,
+      retentionPeriod: HISTORY_RETENTION_MS,
       enableAlerts: true,
     });
 
@@ -93,6 +108,13 @@ export default class PerformanceTools {
   }
 
   /**
+   * The collector that tool dispatch reports invocations to (see ToolRegistry.setMetricsCollector).
+   */
+  getMetricsCollector(): MetricsCollector {
+    return this.collector;
+  }
+
+  /**
    * Get all performance monitoring tools
    */
   getTools(): ToolDefinition[] {
@@ -102,7 +124,9 @@ export default class PerformanceTools {
         description:
           "Get real-time performance statistics and metrics. " +
           "Note: Top-level metrics (totalRequests, averageResponseTime, errorRate) are session-wide aggregates across all sites. " +
-          "Per-site cache and client stats are shown in the siteSpecific section when a site parameter is provided.",
+          "Per-site cache and client stats are shown in the siteSpecific section when a site parameter is provided. " +
+          "category=tools also lists the most recent tool calls (tool, site, status, duration, error code), which is the way to see " +
+          "what failed and why — an installed extension's own log output is not shown by the host.",
         parameters: [
           {
             name: "site",
@@ -187,7 +211,11 @@ export default class PerformanceTools {
       },
       {
         name: "wp_performance_alerts",
-        description: "Get performance alerts and anomaly detection results",
+        description:
+          "Get performance alerts and anomaly detection results. summary.overallStatus covers every alert recorded this " +
+          "session (alerts never expire) and is never better than summary.currentStatus; summary.currentStatus and " +
+          "summary.activeAlerts show only what is breaching right now, using the same rules as wp_performance_stats " +
+          "(overview.alertStatus).",
         parameters: [
           {
             name: "site",
@@ -312,6 +340,8 @@ export default class PerformanceTools {
 
       // Get current metrics
       const metrics = this.collector.collectCurrentMetrics();
+      // What is breaching right now, from the same rules that raise alerts — health and alert status agree.
+      const activeAlerts = this.collector.getActiveAlerts();
 
       // Get site-specific metrics if requested
       let siteMetrics = null;
@@ -325,12 +355,21 @@ export default class PerformanceTools {
       if (category === "overview" || category === "all") {
         result.overview = {
           scope: site ? "session-wide (all sites combined)" : "session-wide",
-          overallHealth: calculateHealthStatus(metrics),
+          overallHealth: calculateHealthStatus(metrics, activeAlerts),
+          alertStatus: calculateActiveAlertStatus(activeAlerts),
+          activeAlerts: {
+            total: activeAlerts.length,
+            error: activeAlerts.filter((a) => a.severity === "error").length,
+            warning: activeAlerts.filter((a) => a.severity === "warning").length,
+            conditions: activeAlerts.map((a) => a.message),
+          },
           performanceScore: calculatePerformanceScore(metrics),
           totalRequests: metrics.requests.total,
           averageResponseTime: `${metrics.requests.averageResponseTime.toFixed(0)}ms`,
-          cacheHitRate: `${(metrics.cache.hitRate * 100).toFixed(1)}%`,
+          cacheHitRate: formatHitRate(metrics.cache),
+          // Server/network failures only; expected 4xx responses are reported separately.
           errorRate: `${((metrics.requests.failed / Math.max(metrics.requests.total, 1)) * 100).toFixed(2)}%`,
+          clientErrors: metrics.requests.clientErrors,
           uptime: formatUptime(metrics.system.uptime),
         };
       }
@@ -347,8 +386,9 @@ export default class PerformanceTools {
 
       if (category === "cache" || category === "all") {
         result.cache = {
+          scope: CACHE_SCOPE_ALL_SITES,
           ...metrics.cache,
-          hitRate: `${(metrics.cache.hitRate * 100).toFixed(1)}%`,
+          hitRate: formatHitRate(metrics.cache),
           memoryUsage: `${metrics.cache.memoryUsageMB.toFixed(1)}MB`,
           efficiency: calculateCacheEfficiency(metrics.cache),
         };
@@ -357,7 +397,7 @@ export default class PerformanceTools {
       if (category === "system" || category === "all") {
         result.system = {
           ...metrics.system,
-          memoryUsage: `${metrics.system.memoryUsage}%`,
+          memoryUsage: `${metrics.system.memoryUsage}% of V8 heap limit`,
           cpuUsage: `${metrics.system.cpuUsage}%`,
           uptime: formatUptime(metrics.system.uptime),
         };
@@ -375,6 +415,11 @@ export default class PerformanceTools {
             .slice(0, 5)
             .map(([tool, count]) => ({ tool, count })),
           toolPerformance: format === "detailed" ? metrics.tools.toolPerformance : undefined,
+          // Newest first. Parameters are never recorded; errors carry their HTTP status and code.
+          recentCalls: this.collector.getRecentToolCalls(format === "detailed" ? 50 : 10).map((call) => ({
+            ...call,
+            timestamp: new Date(call.timestamp).toISOString(),
+          })),
         };
       }
 
@@ -382,7 +427,11 @@ export default class PerformanceTools {
       if (siteMetrics && siteMetrics.isActive) {
         result.siteSpecific = {
           siteId: site,
-          cache: siteMetrics.cache,
+          scope: `site ${site} only, since the server started`,
+          cache: siteMetrics.cache && {
+            ...siteMetrics.cache,
+            hitRate: formatHitRate(siteMetrics.cache),
+          },
           client: siteMetrics.client,
         };
       }
@@ -446,17 +495,34 @@ export default class PerformanceTools {
       return {
         success: true,
         data: {
+          scope: {
+            summary:
+              `averages over the ${historicalData.length} snapshots taken in ${describeHistoryWindow(timeframe)}, ` +
+              "all sites combined. Each snapshot's counters are totals since the server started, so these average " +
+              "cumulative figures; totalRequests counts the requests between the first and last snapshot, and " +
+              "averageCacheHitRate leaves out snapshots taken before any cache lookup (null if there are none)",
+            historicalData: `each series is sampled to at most ${MAX_HISTORY_POINTS} points; dataPoints and the summary use every snapshot`,
+            trends: ANALYTICS_SCOPE,
+          },
           timeframe,
           dataPoints: historicalData.length,
           historicalData: chartData,
           trends: trends || [],
           summary: {
             averageResponseTime: calculateAverage(historicalData.map((d) => d.requests.averageResponseTime)),
-            averageCacheHitRate: calculateAverage(historicalData.map((d) => d.cache.hitRate)),
+            // A snapshot before any cache lookup has no hit rate (hitRate 0 means "no data", not 0%).
+            averageCacheHitRate: (() => {
+              const rates = historicalData.filter((d) => hasCacheActivity(d.cache)).map((d) => d.cache.hitRate);
+              return rates.length ? calculateAverage(rates) : null;
+            })(),
             averageErrorRate: calculateAverage(
               historicalData.map((d) => (d.requests.total > 0 ? d.requests.failed / d.requests.total : 0)),
             ),
-            totalRequests: historicalData.reduce((sum, d) => sum + d.requests.total, 0),
+            // requests.total is cumulative in every snapshot: the difference is what happened in between.
+            totalRequests:
+              historicalData.length > 1
+                ? historicalData[historicalData.length - 1]!.requests.total - historicalData[0]!.requests.total
+                : 0,
           },
           metadata: {
             timestamp: new Date().toISOString(),
@@ -546,6 +612,7 @@ export default class PerformanceTools {
                 timestamp: new Date().toISOString(),
                 category,
                 site: site || "all",
+                scope: CURRENT_METRICS_SCOPE,
                 benchmarkVersion: "2024-industry-standards",
               },
             },
@@ -621,6 +688,9 @@ export default class PerformanceTools {
         info: alerts.filter((a) => a.severity === "info").length,
       };
 
+      // What is breaching right now. Unlike the recorded history below, it clears when a problem recovers.
+      const activeAlerts = this.collector.getActiveAlerts();
+
       const anomalySummary = {
         total: anomalies.length,
         critical: anomalies.filter((a) => a.severity === "critical").length,
@@ -629,9 +699,33 @@ export default class PerformanceTools {
         minor: anomalies.filter((a) => a.severity === "minor").length,
       };
 
+      const recordedAlerts = this.monitor.getAlerts() as PerformanceAlert[];
+      const recordedAnomalies = includeAnomalies ? (this.analytics.getAnomalies() as PerformanceAnomaly[]) : [];
+      const historyStatus = calculateAlertStatus(
+        {
+          critical: recordedAlerts.filter((a) => a.severity === "critical").length,
+          error: recordedAlerts.filter((a) => a.severity === "error").length,
+          warning: recordedAlerts.filter((a) => a.severity === "warning").length,
+        },
+        {
+          critical: recordedAnomalies.filter((a) => a.severity === "critical").length,
+          major: recordedAnomalies.filter((a) => a.severity === "major").length,
+          moderate: recordedAnomalies.filter((a) => a.severity === "moderate").length,
+          minor: recordedAnomalies.filter((a) => a.severity === "minor").length,
+        },
+      );
+
       return {
         success: true,
         data: {
+          scope: {
+            alerts:
+              "recorded history, all sites combined: each message shows the value at the alert's timestamp (a repeat " +
+              "within the 15-minute cooldown updates the same alert), so it can differ from the current figures",
+            activeAlerts: "current metrics, all sites combined: what is breaching now",
+            anomalies:
+              "all sites combined: each anomaly compares a value with the recent snapshots when it was detected",
+          },
           alerts: alerts.map((alert) => ({
             ...alert,
             timestamp: new Date(alert.timestamp).toISOString(),
@@ -645,7 +739,17 @@ export default class PerformanceTools {
           summary: {
             alerts: alertSummary,
             anomalies: anomalySummary,
-            overallStatus: calculateAlertStatus(alertSummary, anomalySummary),
+            // overallStatus covers the WHOLE recorded history (alerts never expire, and the severity/category/limit
+            // filters above shape only the returned list), so it can stay red after a problem recovers; it is also
+            // never better than currentStatus, which is the field that clears.
+            overallStatus: worseAlertStatus(historyStatus, calculateActiveAlertStatus(activeAlerts)),
+            currentStatus: calculateActiveAlertStatus(activeAlerts),
+            activeAlerts: {
+              total: activeAlerts.length,
+              error: activeAlerts.filter((a) => a.severity === "error").length,
+              warning: activeAlerts.filter((a) => a.severity === "warning").length,
+              conditions: activeAlerts.map((a) => a.message),
+            },
           },
           metadata: {
             timestamp: new Date().toISOString(),
@@ -753,6 +857,7 @@ export default class PerformanceTools {
             focus,
             priority,
             site: site || "all",
+            scope: { recommendations: CURRENT_METRICS_SCOPE, predictions: ANALYTICS_SCOPE },
           },
         },
       };
@@ -800,7 +905,10 @@ export default class PerformanceTools {
       if (includeHistorical) {
         const timeframMs = parseTimeframe(timeRange);
         const startTime = Date.now() - timeframMs;
-        exportData.historicalData = this.monitor.getHistoricalData(startTime);
+        const history = this.monitor.getHistoricalData(startTime);
+        // A day of snapshots is thousands of entries; export an even sample and say how many there were.
+        exportData.historicalData = downsample(history, MAX_HISTORY_POINTS);
+        exportData.historicalDataPoints = history.length;
       }
 
       if (includeAnalytics) {
@@ -843,6 +951,24 @@ export default class PerformanceTools {
           format,
           dataSize: JSON.stringify(exportData).length,
           site: site || "all",
+          // In the outer metadata so the CSV and summary formats carry it too; one entry per included section.
+          scope: {
+            currentMetrics: CURRENT_METRICS_SCOPE,
+            aggregatedStats: CURRENT_METRICS_SCOPE,
+            ...(exportData.siteComparison ? { siteComparison: "each site on its own, since the server started" } : {}),
+            ...(includeHistorical
+              ? {
+                  historicalData: `snapshots taken in ${describeHistoryWindow(timeRange)}, sampled to at most ${MAX_HISTORY_POINTS} points (historicalDataPoints counts them all); each one's counters are totals since the server started`,
+                }
+              : {}),
+            ...(includeAnalytics
+              ? {
+                  analytics:
+                    `trends, anomalies and predictions: ${ANALYTICS_SCOPE}; ` +
+                    `benchmarks, insights and optimizationPlan: ${CURRENT_METRICS_SCOPE}`,
+                }
+              : {}),
+          },
         },
       };
     });

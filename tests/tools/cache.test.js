@@ -64,6 +64,19 @@ describe("CacheTools", () => {
   });
 
   describe("wp_cache_stats", () => {
+    // A hit rate over zero lookups is undefined, not 0%: the performance alerts already treat it as neutral.
+    it("shows no hit rate before the first lookup", async () => {
+      mockCachedClient.getCacheStats.mockReturnValue({
+        cache: { hits: 0, misses: 0, hitRate: 0, totalSize: 0, evictions: 0 },
+        invalidation: { queueSize: 0, rulesCount: 0, processing: false },
+      });
+
+      const statsTool = cacheTools.getTools().find((t) => t.name === "wp_cache_stats");
+      const result = await statsTool.handler(mockCachedClient, {});
+
+      expect(result.cache_stats.hit_rate).toBe("n/a (no lookups yet)");
+    });
+
     it("should return cache statistics when caching is enabled", async () => {
       const mockStats = {
         cache: {
@@ -88,9 +101,10 @@ describe("CacheTools", () => {
 
       expect(result.caching_enabled).toBe(true);
       expect(result.cache_stats).toEqual({
+        scope: "this site only, since the server started",
         hits: 150,
         misses: 50,
-        hit_rate: "75%",
+        hit_rate: "75.0%",
         total_entries: 100,
         evictions: 5,
       });
@@ -239,8 +253,9 @@ describe("CacheTools", () => {
       expect(result.cache_configuration).toBeDefined();
       expect(result.ttl_presets).toBeDefined();
       expect(result.current_stats).toEqual({
+        scope: "this site only, since the server started",
         total_entries: 100,
-        hit_rate: "85%",
+        hit_rate: "85.0%",
         hits: 170,
         misses: 30,
         evictions: 5,

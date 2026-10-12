@@ -2,7 +2,8 @@ import { WordPressClient } from "@/client/api.js";
 import type { MCPToolSchema } from "@/types/mcp.js";
 import { CreateCategoryRequest, CreateTagRequest, UpdateCategoryRequest, UpdateTagRequest } from "@/types/wordpress.js";
 import { preserveToolError } from "@/utils/error.js";
-import { parseId, toolParams } from "./params.js";
+import { htmlToPlainText } from "@/utils/htmlText.js";
+import { pageHint, parseId, toolParams } from "./params.js";
 
 /**
  * Provides tools for managing taxonomies (categories and tags) on a WordPress site.
@@ -34,6 +35,14 @@ export class TaxonomyTools {
             hide_empty: {
               type: "boolean",
               description: "Whether to hide categories with no posts.",
+            },
+            per_page: {
+              type: "number",
+              description: "Number of categories to return per page (max 100). WordPress defaults to 10.",
+            },
+            page: {
+              type: "number",
+              description: "Page of results to return (1-based).",
             },
           },
         },
@@ -94,7 +103,7 @@ export class TaxonomyTools {
       },
       {
         name: "wp_delete_category",
-        description: "Deletes a category.",
+        description: "Permanently deletes a category (WordPress terms have no trash).",
         inputSchema: {
           type: "object",
           properties: {
@@ -117,6 +126,14 @@ export class TaxonomyTools {
             search: {
               type: "string",
               description: "Limit results to those matching a search term.",
+            },
+            per_page: {
+              type: "number",
+              description: "Number of tags to return per page (max 100). WordPress defaults to 10.",
+            },
+            page: {
+              type: "number",
+              description: "Page of results to return (1-based).",
             },
           },
         },
@@ -173,7 +190,7 @@ export class TaxonomyTools {
       },
       {
         name: "wp_delete_tag",
-        description: "Deletes a tag.",
+        description: "Permanently deletes a tag (WordPress terms have no trash).",
         inputSchema: {
           type: "object",
           properties: {
@@ -198,7 +215,8 @@ export class TaxonomyTools {
       }
       const content =
         `Found ${categories.length} categories:\n\n` +
-        categories.map((c) => `- ID ${c.id}: **${c.name}** (Posts: ${c.count})`).join("\n");
+        categories.map((c) => `- ID ${c.id}: **${htmlToPlainText(c.name)}** (Posts: ${c.count})`).join("\n") +
+        pageHint(categories.length, params);
       return content;
     } catch (_error) {
       preserveToolError("Failed to list categories", _error);
@@ -244,7 +262,8 @@ export class TaxonomyTools {
   public async handleDeleteCategory(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     const id = parseId(params);
     try {
-      await client.deleteCategory(id);
+      // WordPress terms have no trash — the REST API rejects DELETE without force=true.
+      await client.deleteCategory(id, true);
       return `✅ Category ${id} has been deleted.`;
     } catch (_error) {
       preserveToolError("Failed to delete category", _error);
@@ -260,7 +279,8 @@ export class TaxonomyTools {
       }
       const content =
         `Found ${tags.length} tags:\n\n` +
-        tags.map((t) => `- ID ${t.id}: **${t.name}** (Posts: ${t.count})`).join("\n");
+        tags.map((t) => `- ID ${t.id}: **${htmlToPlainText(t.name)}** (Posts: ${t.count})`).join("\n") +
+        pageHint(tags.length, params);
       return content;
     } catch (_error) {
       preserveToolError("Failed to list tags", _error);
@@ -305,7 +325,8 @@ export class TaxonomyTools {
   public async handleDeleteTag(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     const id = parseId(params);
     try {
-      await client.deleteTag(id);
+      // WordPress terms have no trash — the REST API rejects DELETE without force=true.
+      await client.deleteTag(id, true);
       return `✅ Tag ${id} has been deleted.`;
     } catch (_error) {
       preserveToolError("Failed to delete tag", _error);

@@ -8,10 +8,10 @@
 
 import { WordPressClient } from "@/client/api.js";
 import { CreatePostRequest, PostQueryParams, PostStatus, UpdatePostRequest, WordPressPost } from "@/types/wordpress.js";
-import { getErrorMessage, isPermissionError } from "@/utils/error.js";
+import { isPermissionError, preserveToolError } from "@/utils/error.js";
 import { ErrorHandlers } from "@/utils/enhancedError.js";
 import { validateId, validatePaginationParams, validatePostParams } from "@/utils/validation.js";
-import { sanitizeHtml } from "@/utils/validation/security.js";
+import { countWords, displayTitle, htmlToPlainText } from "@/utils/htmlText.js";
 import { WordPressDataStreamer, StreamingUtils, StreamingResult } from "@/utils/streaming.js";
 import { formatModified } from "../format.js";
 
@@ -54,6 +54,16 @@ export function buildListParams(params: PostQueryParams): PostQueryParams {
   return sanitized;
 }
 
+/**
+ * Label for a post's `date` field. For a draft or pending post it is when the post was created,
+ * not when it was published, so calling it "Published" is wrong.
+ */
+function dateLabel(status: string): string {
+  if (status === "publish" || status === "private") return "Published";
+  if (status === "future") return "Scheduled";
+  return "Created";
+}
+
 export function formatPostsResponse(
   posts: WordPressPost[],
   siteUrl: string,
@@ -71,7 +81,7 @@ export function formatPostsResponse(
   );
 
   const metadata = [
-    `📊 **Posts Summary**: ${posts.length} total`,
+    `📊 **Posts Summary**: ${posts.length} on this page`,
     `📝 **Status Breakdown**: ${Object.entries(statusCounts)
       .map(([status, count]) => `${status}: ${count}`)
       .join(", ")}`,
@@ -89,14 +99,14 @@ export function formatPostsResponse(
         month: "short",
         day: "numeric",
       });
-      const excerpt = p.excerpt?.rendered ? sanitizeHtml(p.excerpt.rendered).substring(0, 80) + "..." : "";
+      const excerpt = htmlToPlainText(p.excerpt?.rendered, { maxLength: 80 });
       const authorName = authorMap.get(p.author) || (p.author != null ? `User ${p.author}` : "Unknown Author");
       const postCategories = (p.categories || []).map((id) => categoryMap.get(id) || `Category ${id}`);
       const postTags = (p.tags || []).map((id) => tagMap.get(id) || `Tag ${id}`);
 
-      let postInfo = `- ID ${p.id}: **${p.title.rendered}** (${p.status})\n`;
+      let postInfo = `- ID ${p.id}: **${displayTitle(p.title.rendered)}** (${p.status})\n`;
       postInfo += `  👤 Author: ${authorName}\n`;
-      postInfo += `  📅 Published: ${formattedDate}\n`;
+      postInfo += `  📅 ${dateLabel(p.status)}: ${formattedDate}\n`;
       postInfo += `  ✏️ Last modified: ${formatModified(p)}\n`;
       if (postCategories.length > 0) postInfo += `  📁 Categories: ${postCategories.join(", ")}\n`;
       if (postTags.length > 0) postInfo += `  🏷️ Tags: ${postTags.join(", ")}\n`;
@@ -106,11 +116,24 @@ export function formatPostsResponse(
     })
     .join("\n\n");
 
-  let content = metadata.join("\n") + "\n\n" + postLines;
-  if (posts.length >= (sanitizedParams.per_page || 10)) {
-    content += `\n\n📄 **Pagination Tip**: Use \`per_page\` parameter to control results (max 100). Current: ${sanitizedParams.per_page || 10}`;
+  return metadata.join("\n") + "\n\n" + postLines + postsPaginationNote(posts.length, sanitizedParams);
+}
+
+/**
+ * Trailing note for a full page of posts. The list tools do not receive WordPress's X-WP-Total header, so
+ * "the page is full" is the only signal that more may exist. Shared by the normal and the streaming (>50)
+ * response paths so neither silently drops it.
+ */
+export function postsPaginationNote(count: number, params: PostQueryParams): string {
+  const perPage = params.per_page || 10;
+  if (count < perPage) {
+    return "";
   }
-  return content;
+  const page = params.page || 1;
+  return (
+    `\n\n📄 **Pagination**: page ${page}, ${perPage} per page. This page is full, so more results may exist — ` +
+    `request \`page=${page + 1}\` (use \`per_page\` to change the page size, max 100).`
+  );
 }
 
 /**
@@ -141,7 +164,10 @@ export async function handleListPosts(
       })) {
         streamResults.push(result);
       }
-      return StreamingUtils.formatStreamingResponse(streamResults, "posts");
+      return (
+        StreamingUtils.formatStreamingResponse(streamResults, "posts") +
+        postsPaginationNote(posts.length, sanitizedParams)
+      );
     }
 
     const siteUrl = client.getSiteUrl ? client.getSiteUrl() : "Unknown site";
@@ -194,7 +220,7 @@ export async function handleListPosts(
 
     return formatPostsResponse(posts, siteUrl, sanitizedParams, authorMap, categoryMap, tagMap);
   } catch (_error) {
-    throw new Error(`Failed to list posts: ${getErrorMessage(_error)}`);
+    preserveToolError("Failed to list posts", _error);
   }
 }
 
@@ -260,15 +286,17 @@ export async function handleGetPost(
     });
 
     const content = post.content?.raw ?? post.content?.rendered ?? "";
-    const excerpt = post.excerpt?.rendered ? sanitizeHtml(post.excerpt.rendered).trim() : "";
-    const wordCount = sanitizeHtml(content).split(/\s+/).filter(Boolean).length;
+    const excerpt = htmlToPlainText(post.excerpt?.rendered);
+    // Same source and pipeline as the SEO analyzer (the rendered body, which is what readers see) so the two tools
+    // agree on a post's length even when raw block markup or shortcodes differ from the rendered output.
+    const wordCount = countWords(htmlToPlainText(post.content?.rendered ?? content));
 
     // Build comprehensive response
-    let response = `# ${post.title.rendered}\n\n`;
+    let response = `# ${displayTitle(post.title.rendered)}\n\n`;
     response += `**Post ID**: ${post.id}\n`;
     response += `**Status**: ${post.status}\n`;
     response += `**Author**: ${author?.name || author?.username || `User ${post.author}`}\n`;
-    response += `**Published**: ${formattedDate}\n`;
+    response += `**${dateLabel(post.status)}**: ${formattedDate}\n`;
     response += `**Modified**: ${formattedModified}\n`;
 
     if (categories.length > 0) {
@@ -303,7 +331,7 @@ export async function handleGetPost(
     if (_error instanceof Error && _error.message.includes("404")) {
       return `Post with ID ${params.id} not found. Please verify the ID and try again.`;
     }
-    throw new Error(`Failed to get post: ${getErrorMessage(_error)}`);
+    preserveToolError("Failed to get post", _error);
   }
 }
 
@@ -315,17 +343,17 @@ export async function handleCreatePost(
   params: CreatePostRequest,
 ): Promise<WordPressPost | string> {
   try {
-    // validatePostParams sanitizes `content` (and validates title/status/categories/tags/
-    // featured_media/date) via the allowlist-based sanitizeHtml() — its returned, sanitized
-    // fields must actually be sent, not just the original `params`, or the sanitization has no
-    // effect at all (a real gap a security review caught: this used to be called only for its
-    // throwing side effect, then discarded).
+    // validatePostParams rejects unsafe `content` (script tags, javascript: URLs, event handlers) via
+    // isUnsafeWordPressContent and otherwise passes it through unchanged — never sanitizeHtml(), which
+    // corrupts Gutenberg block markup — and validates title/status/categories/tags/featured_media/date.
+    // Its returned fields must actually be sent, not just the original `params` (a real gap a security
+    // review caught: this used to be called only for its throwing side effect, then discarded).
     const validated = validatePostParams(params);
     const post = await client.createPost({ ...params, ...validated } as CreatePostRequest);
 
     // Build success response with management links
     let response = `✅ **Post Created Successfully**\n\n`;
-    response += `**Title**: ${post.title.rendered}\n`;
+    response += `**Title**: ${displayTitle(post.title.rendered)}\n`;
     response += `**ID**: ${post.id}\n`;
     response += `**Status**: ${post.status}\n`;
     response += `**Link**: ${post.link}\n`;
@@ -344,7 +372,7 @@ export async function handleCreatePost(
 
     return response;
   } catch (_error) {
-    throw new Error(`Failed to create post: ${getErrorMessage(_error)}`);
+    preserveToolError("Failed to create post", _error);
   }
 }
 
@@ -359,24 +387,38 @@ export async function handleUpdatePost(
     const postId = validateId(params.id, "post ID");
 
     const { id: _id, ...updateData } = params;
-    // See handleCreatePost: validated (sanitized) fields must be sent, not just updateData.
+    // See handleCreatePost: the validated fields must be sent, not just updateData.
     const validated = validatePostParams(updateData, true);
 
     const updatedPost = await client.updatePost({ id: postId, ...updateData, ...validated });
 
     // Build change summary
     let response = `✅ **Post Updated Successfully**\n\n`;
-    response += `**Title**: ${updatedPost.title.rendered}\n`;
+    response += `**Title**: ${displayTitle(updatedPost.title.rendered)}\n`;
     response += `**ID**: ${updatedPost.id}\n`;
     response += `**Status**: ${updatedPost.status}\n`;
     response += `**Modified**: ${new Date(updatedPost.modified).toLocaleString()}\n`;
 
     // Show which fields were updated
     const changes: string[] = [];
-    if (params.title) changes.push(`Title: "${updatedPost.title.rendered}"`);
+    if (params.title) changes.push(`Title: "${displayTitle(updatedPost.title.rendered)}"`);
     if (params.status) changes.push(`Status: "${updatedPost.status}"`);
-    if (params.content) changes.push("Content updated");
-    if (params.excerpt) changes.push("Excerpt updated");
+    if (params.content !== undefined) changes.push("Content updated");
+    if (params.excerpt !== undefined) changes.push("Excerpt updated");
+    if (params.categories !== undefined) {
+      changes.push(
+        params.categories.length > 0 ? `Categories updated: ${params.categories.join(", ")}` : "Categories cleared",
+      );
+    }
+    if (params.tags !== undefined) {
+      changes.push(params.tags.length > 0 ? `Tags updated: ${params.tags.join(", ")}` : "Tags cleared");
+    }
+    if (params.featured_media !== undefined) {
+      changes.push(
+        params.featured_media === 0 ? "Featured image removed" : `Featured image updated: ${params.featured_media}`,
+      );
+    }
+    if (params.date) changes.push(`Date updated: ${params.date}`);
 
     if (changes.length > 0) {
       response += `\n**Changes Made**:\n${changes.map((c) => `- ${c}`).join("\n")}\n`;
@@ -389,7 +431,7 @@ export async function handleUpdatePost(
     if (_error instanceof Error && _error.message.includes("404")) {
       return `Post with ID ${params.id} not found. Please verify the ID and try again.`;
     }
-    throw new Error(`Failed to update post: ${getErrorMessage(_error)}`);
+    preserveToolError("Failed to update post", _error);
   }
 }
 
@@ -409,7 +451,7 @@ export async function handleDeletePost(
       let response = `✅ **Post ${action} successfully**\n\n`;
 
       if (result.previous) {
-        response += `**Title**: ${result.previous.title.rendered}\n`;
+        response += `**Title**: ${displayTitle(result.previous.title.rendered)}\n`;
         response += `**ID**: ${result.previous.id}\n`;
       }
 
@@ -425,7 +467,7 @@ export async function handleDeletePost(
     if (_error instanceof Error && _error.message.includes("404")) {
       return `Post with ID ${params.id} not found. Please verify the ID and try again.`;
     }
-    throw new Error(`Failed to delete post: ${getErrorMessage(_error)}`);
+    preserveToolError("Failed to delete post", _error);
   }
 }
 
@@ -459,7 +501,7 @@ export async function handleGetPostRevisions(
       response += `**Revision ${index + 1}**\n`;
       response += `- ID: ${revision.id}\n`;
       response += `- Date: ${formattedDate}\n`;
-      response += `- Title: ${revision.title.rendered}\n`;
+      response += `- Title: ${displayTitle(revision.title.rendered)}\n`;
       if (index < revisions.length - 1) response += "\n";
     });
 
@@ -468,6 +510,6 @@ export async function handleGetPostRevisions(
     if (_error instanceof Error && _error.message.includes("404")) {
       return `Post with ID ${params.id} not found. Please verify the ID and try again.`;
     }
-    throw new Error(`Failed to get post revisions: ${getErrorMessage(_error)}`);
+    preserveToolError("Failed to get post revisions", _error);
   }
 }
