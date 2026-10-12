@@ -567,6 +567,12 @@ describe("ToolRegistry", () => {
       );
     });
 
+    it("treats 403 rest_not_logged_in as authentication (header stripped by host)", () => {
+      expect(registry.isAuthenticationError(new WordPressAPIError("Not logged in", 403, "rest_not_logged_in"))).toBe(
+        true,
+      );
+    });
+
     it("does not treat WordPress rest_forbidden (a role limit) as an authentication error", () => {
       expect(registry.isAuthenticationError(new WordPressAPIError("Sorry", 403, "rest_forbidden"))).toBe(false);
     });

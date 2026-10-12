@@ -233,7 +233,7 @@ export class ToolRegistry {
               content: [
                 {
                   type: "text" as const,
-                  text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials.`,
+                  text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run workshop again, which detects this and names the fix.`,
                 },
               ],
               isError: true,
@@ -519,7 +519,10 @@ export class ToolRegistry {
    */
   private isAuthenticationError(error: unknown): boolean {
     if (error instanceof AuthenticationError) return true;
-    return error instanceof WordPressAPIError && error.statusCode === 401;
+    if (!(error instanceof WordPressAPIError)) return false;
+    // A host that strips the Authorization header makes WordPress answer as if nobody logged in;
+    // some setups send that as 403 rest_not_logged_in. It is a login problem, not a role limit.
+    return error.statusCode === 401 || (error.statusCode === 403 && error.code === "rest_not_logged_in");
   }
 
   /**

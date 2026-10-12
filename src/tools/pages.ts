@@ -169,9 +169,7 @@ export class PageTools {
         pages
           .map(
             (p) =>
-              `- ID ${p.id}: **${displayTitle(p.title.rendered)}** (${p.status})
-  Link: ${p.link}
-  Last modified: ${formatModified(p)}`,
+              `- ID ${p.id}: **${displayTitle(p.title.rendered)}** (${p.status})\n  Link: ${p.link}\n  Last modified: ${formatModified(p)}`,
           )
           .join("\n");
       return content;
