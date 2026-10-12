@@ -42,6 +42,7 @@ describe("MenuTools", () => {
       }),
       post: vi.fn().mockResolvedValue({ id: 77 }),
       delete: vi.fn().mockResolvedValue({ deleted: true }),
+      requestWithMetadata: vi.fn(async (_m, e) => ({ data: await client.get(e) })),
     };
   });
   afterEach(() => {
@@ -79,6 +80,16 @@ describe("MenuTools", () => {
     expect(result.indexOf("ID 1:")).toBeLessThan(result.indexOf("ID 2:"));
     expect(result).toMatch(/ {2}- ID 2: \*\*Child\*\*/);
     expect(result).toContain("custom link");
+  });
+
+  it("update reads the item's menu through the uncached path", async () => {
+    client.get.mockImplementation(async () => ({ id: 1, menus: 999 })); // what a stale cache would say
+    client.requestWithMetadata.mockImplementation(async (_m, e) => ({
+      data: e.startsWith("menu-items/1?") ? { id: 1, menus: 5 } : e.startsWith("menus/5") ? { id: 5 } : [],
+    }));
+    await tools.handleUpdateMenuItem(client, { id: 1, title: "x" });
+    expect(client.get).not.toHaveBeenCalled();
+    expect(snapshots()[0]).toMatch(/^5-/);
   });
 
   describe("create", () => {

@@ -49,6 +49,7 @@ function makeClient(widgets, siteUrl = "https://test-site.com") {
       }
       throw new Error(`unexpected GET ${endpoint}`);
     }),
+    requestWithMetadata: vi.fn(async (_m, e) => ({ data: await client.get(e) })),
     post: vi.fn().mockResolvedValue({ id: "block-99" }),
     delete: vi.fn().mockResolvedValue({ deleted: true }),
   };
@@ -205,10 +206,12 @@ describe("WidgetTools", () => {
     ).rejects.toThrow(/Unsafe/);
   });
 
-  it("deletes with force after snapshotting, and does not delete when the snapshot fails", async () => {
-    await tools.handleDeleteWidget(client, { id: "block-3" });
+  it("moves to Inactive Widgets (no force) after snapshotting, and does nothing when the snapshot fails", async () => {
+    const result = await tools.handleDeleteWidget(client, { id: "block-3" });
     expect(files()).toHaveLength(1);
-    expect(client.delete).toHaveBeenCalledWith("widgets/block-3?force=true");
+    expect(client.delete).toHaveBeenCalledWith("widgets/block-3");
+    expect(client.delete.mock.calls.flat().join()).not.toContain("force");
+    expect(result).toContain("Inactive Widgets");
 
     client.delete.mockClear();
     client.get.mockImplementation(async (e) => {
@@ -297,7 +300,7 @@ describe("WidgetTools", () => {
   describe("restore", () => {
     const snap = async (c) => (await writeWidgetSnapshot(c, "footer-1")).file;
 
-    it("reapplies settings, recreates a deleted block widget, removes added widgets, and snapshots first", async () => {
+    it("reapplies settings, recreates a deleted block widget, moves added widgets to Inactive Widgets, and snapshots first", async () => {
       const file = await snap(client);
       // After: block-3 deleted, text-2 edited, search-1 untouched, block-8 added.
       client.store.widgets = [
@@ -317,9 +320,9 @@ describe("WidgetTools", () => {
       expect(client.post).toHaveBeenCalledWith("widgets/text-2", {
         instance: { raw: { title: "Hours", text: "9-5", filter: false } },
       });
-      expect(client.delete).toHaveBeenCalledWith("widgets/block-8?force=true");
+      expect(client.delete).toHaveBeenCalledWith("widgets/block-8");
       expect(result).toContain("Recreated widget block-3");
-      expect(result).toContain("Deleted widget block-8");
+      expect(result).toContain("Moved widget block-8 to Inactive Widgets (recover in WP admin)");
       expect(files().length).toBe(2);
     });
 
@@ -349,7 +352,7 @@ describe("WidgetTools", () => {
       expect(result).toContain("partly restored");
       expect(result).toContain("only block widgets can be created again");
       expect(client.delete).not.toHaveBeenCalled();
-      expect(result).toContain("were NOT removed");
+      expect(result).toContain("NOT moved to Inactive Widgets");
     });
 
     it("also skips deletes when an update call fails", async () => {
@@ -385,5 +388,166 @@ describe("WidgetTools", () => {
       expect(result).toContain("Nothing needed changing");
       expect(client.post).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("widget hardening", () => {
+  let tools;
+  let dir;
+  let client;
+  const files = () => readdirSync(join(dir, siteKey(client)));
+  const snap = async () => (await writeWidgetSnapshot(client, "footer-1")).file;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "widget-hard-"));
+    process.env.MCP_WP_WIDGET_BACKUP_DIR = dir;
+    tools = new WidgetTools();
+    client = makeClient([block(3, "<p>Hi</p>"), text(2)]);
+  });
+  afterEach(() => {
+    delete process.env.MCP_WP_WIDGET_BACKUP_DIR;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("brings a widget back from Inactive Widgets through the area move", async () => {
+    const file = await snap();
+    // block-3 was "deleted" earlier: it now sits in wp_inactive_widgets, not in footer-1.
+    const inactive = { ...block(3, "<p>Hi</p>"), sidebar: "wp_inactive_widgets" };
+    const inFooter = [text(2)];
+    client.get.mockImplementation(async (e) => {
+      if (e.startsWith("sidebars/")) return { id: "footer-1" };
+      if (e.startsWith("widgets?sidebar=footer-1")) return inFooter;
+      if (e === "widgets/block-3?context=edit") return inactive;
+      throw new WordPressAPIError("nf", 404, "rest_invalid_widget");
+    });
+    client.post.mockClear();
+    const result = await tools.handleRestoreWidgetSnapshot(client, { snapshot: file });
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post).toHaveBeenCalledWith("widgets/block-3", { sidebar: "footer-1" });
+    expect(result).toContain("Restored area of widget block-3");
+  });
+
+  it("treats a lookup failure other than 404 as a failure and skips moving added widgets", async () => {
+    const file = await snap();
+    client.store.widgets = [text(2), block(8, "<p>new</p>")]; // block-3 not in the area any more
+    const base = client.get.getMockImplementation();
+    client.get.mockImplementation(async (e) => {
+      if (e === "widgets/block-3?context=edit") throw new WordPressAPIError("Service Unavailable", 503, "http_error");
+      return base(e);
+    });
+    const result = await tools.handleRestoreWidgetSnapshot(client, { snapshot: file });
+    expect(result).toContain("Could not look up widget block-3");
+    expect(result).toContain("No changes were made.");
+    expect(result).not.toContain("Nothing needed changing");
+    expect(client.post).not.toHaveBeenCalled();
+    expect(client.delete).not.toHaveBeenCalled();
+  });
+
+  it("treats a reused id with a different widget type as missing", async () => {
+    const file = await snap();
+    // block-3 is now a search widget (WordPress reused the id). The block is recreated, the search widget is not touched.
+    client.store.widgets = [text(2), { id: "block-3", id_base: "search", sidebar: "footer-1", instance: {} }];
+    client.post.mockClear();
+    const result = await tools.handleRestoreWidgetSnapshot(client, { snapshot: file });
+    expect(client.post).toHaveBeenCalledWith("widgets", expect.objectContaining({ id_base: "block" }));
+    expect(client.post).not.toHaveBeenCalledWith("widgets/block-3", expect.anything());
+    expect(result).toContain("Recreated widget block-3");
+    expect(client.delete).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite settings that only differ in key order", async () => {
+    client.store.widgets = [text(2, { instance: { raw: { filter: false, text: "9-5", title: "Hours" } } })];
+    const file = await snap();
+    client.store.widgets = [text(2, { instance: { raw: { title: "Hours", filter: false, text: "9-5" } } })];
+    client.post.mockClear();
+    const result = await tools.handleRestoreWidgetSnapshot(client, { snapshot: file });
+    expect(client.post).not.toHaveBeenCalled();
+    expect(result).toContain("Nothing needed changing");
+  });
+
+  it("refuses to put new script from a crafted snapshot on the site, but restores unchanged existing script", async () => {
+    // Existing analytics-style custom HTML is already live and unchanged: restoring something else must still work.
+    const analytics = {
+      id: "custom_html-1",
+      id_base: "custom_html",
+      sidebar: "footer-1",
+      instance: { raw: { title: "", content: "<script>ga()</script>" } },
+    };
+    client.store.widgets = [analytics, text(2)];
+    const file = await snap();
+    const path = join(dir, siteKey(client), file);
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    data.widgets[1].instance.raw.text = "<img src=x onerror=alert(1)>"; // crafted
+    writeFileSync(path, JSON.stringify(data));
+    client.post.mockClear();
+    const result = await tools.handleRestoreWidgetSnapshot(client, { snapshot: file });
+    expect(result).toContain("Refused to restore settings of widget text-2");
+    expect(client.post).not.toHaveBeenCalled();
+
+    // Same file but the script already live and unchanged: not questioned.
+    data.widgets[1].instance.raw.text = "CHANGED";
+    writeFileSync(path, JSON.stringify(data));
+    client.store.widgets = [
+      analytics,
+      text(2, { instance: { raw: { title: "Hours", text: "other", filter: false } } }),
+    ];
+    const ok = await tools.handleRestoreWidgetSnapshot(client, { snapshot: file });
+    expect(ok).toContain("Restored settings of widget text-2");
+  });
+
+  it("refuses a damaged snapshot: wrong sidebar, or no widgets although the area had some", async () => {
+    const file = await snap();
+    const path = join(dir, siteKey(client), file);
+    const good = JSON.parse(readFileSync(path, "utf8"));
+    writeFileSync(path, JSON.stringify({ ...good, sidebar: { id: "other" } }));
+    await expect(tools.handleRestoreWidgetSnapshot(client, { snapshot: file })).rejects.toThrow(/sidebar id differs/);
+    writeFileSync(path, JSON.stringify({ ...good, sidebar: undefined }));
+    await expect(tools.handleRestoreWidgetSnapshot(client, { snapshot: file })).rejects.toThrow(/sidebar id differs/);
+    writeFileSync(path, JSON.stringify({ ...good, widgets: [], sidebar: { id: "footer-1", widgets: ["block-3"] } }));
+    await expect(tools.handleRestoreWidgetSnapshot(client, { snapshot: file })).rejects.toThrow(/looks damaged/);
+    // One-way: widgets present, sidebar.widgets naming an extra (deactivated plugin) widget is fine.
+    writeFileSync(
+      path,
+      JSON.stringify({ ...good, sidebar: { id: "footer-1", widgets: ["block-3", "text-2", "gone-9"] } }),
+    );
+    await expect(tools.handleRestoreWidgetSnapshot(client, { snapshot: file })).resolves.toContain("restored from");
+    expect(client.delete).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-string content, text and title, and blank content on create", async () => {
+    for (const bad of [{ content: 5 }, { content: { a: 1 } }, { text: [] }, { title: 3 }]) {
+      await expect(tools.handleUpdateWidget(client, { id: "block-3", ...bad })).rejects.toThrow(/must be text/);
+    }
+    await expect(tools.handleCreateWidget(client, { sidebar: "footer-1", content: 5 })).rejects.toThrow(/must be text/);
+    for (const content of ["", "  \n"]) {
+      await expect(tools.handleCreateWidget(client, { sidebar: "footer-1", content })).rejects.toThrow(/empty widget/);
+    }
+    expect(client.post).not.toHaveBeenCalled();
+  });
+
+  it("reads through the uncached path so two updates in a row each see the latest widget", async () => {
+    const stale = block(3, "<p>STALE</p>");
+    let live = block(3, "<p>v1</p>");
+    const cachingClient = {
+      getSiteUrl: () => "https://test-site.com",
+      // The cached path would return stale data forever.
+      get: vi.fn(async () => stale),
+      requestWithMetadata: vi.fn(async (_m, e) => {
+        if (e.startsWith("sidebars/")) return { data: { id: "footer-1" } };
+        if (e.startsWith("widgets?sidebar=")) return { data: [live] };
+        return { data: live };
+      }),
+      post: vi.fn(async (_e, body) => {
+        live = { ...live, instance: body.instance };
+        return live;
+      }),
+    };
+    client = cachingClient;
+    await tools.handleUpdateWidget(client, { id: "block-3", content: "<p>v2</p>" });
+    await tools.handleUpdateWidget(client, { id: "block-3", content: "<p>v3</p>" });
+    expect(client.get).not.toHaveBeenCalled();
+    const saved = files().map((f) => JSON.parse(readFileSync(join(dir, siteKey(client), f), "utf8")));
+    const contents = saved.map((x) => x.widgets[0].instance.raw.content).sort();
+    expect(contents).toEqual(["<p>v1</p>", "<p>v2</p>"]);
   });
 });

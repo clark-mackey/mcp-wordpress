@@ -20,6 +20,7 @@ describe("TemplatePartTools", () => {
     process.env.MCP_WP_TEMPLATE_PART_BACKUP_DIR = dir;
     tools = new TemplatePartTools();
     client = { getSiteUrl: () => "https://test-site.com", get: vi.fn(), post: vi.fn() };
+    client.requestWithMetadata = vi.fn(async (_m, e) => ({ data: await client.get(e) }));
   });
   afterEach(() => {
     delete process.env.MCP_WP_TEMPLATE_PART_BACKUP_DIR;
@@ -142,6 +143,23 @@ describe("TemplatePartTools", () => {
       expect(result).toContain(saved()[0]);
       expect(result).toContain("wp_restore_template_part_snapshot");
       expect(result).toContain("only exist after a part's first edit");
+    });
+
+    it("reads the original through the uncached path, so a second edit saves the first edit's content", async () => {
+      let live = ORIGINAL;
+      client.get.mockImplementation(async () => ({ id: "theme//header", content: { raw: "STALE CACHED" } }));
+      client.requestWithMetadata.mockImplementation(async () => ({
+        data: { id: "theme//header", content: { raw: live } },
+      }));
+      client.post.mockImplementation(async (_e, body) => {
+        live = body.content;
+        return { id: "theme//header" };
+      });
+      await tools.handleUpdateTemplatePart(client, { id: "theme//header", content: "<p>one</p>" });
+      await tools.handleUpdateTemplatePart(client, { id: "theme//header", content: "<p>two</p>" });
+      const contents = saved().map((f) => JSON.parse(readFileSync(join(dir, siteKey(client), f), "utf8")).content);
+      expect(contents.sort()).toEqual([ORIGINAL, "<p>one</p>"].sort());
+      expect(client.get).not.toHaveBeenCalled();
     });
 
     it("refuses blank content and writes nothing", async () => {

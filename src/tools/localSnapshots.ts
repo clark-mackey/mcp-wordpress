@@ -86,3 +86,13 @@ export function assertSameSite(recorded: unknown, client: WordPressClient): void
     throw invalid(`This snapshot was taken on ${String(recorded)}, not ${client.getSiteUrl()}. Nothing was changed.`);
   }
 }
+
+/**
+ * GET that never comes from the read cache. CachedWordPressClient caches GETs for minutes and has no
+ * invalidation rules for menus, widgets, sidebars or template parts, so a read that feeds a write or a
+ * snapshot through client.get() could return data from before the last edit. requestWithMetadata()
+ * bypasses that cache (it calls the base client directly), so every theme read goes through here.
+ */
+export async function freshGet<T>(client: WordPressClient, endpoint: string): Promise<T> {
+  return (await client.requestWithMetadata<T>("GET", endpoint)).data;
+}

@@ -154,10 +154,13 @@ password edit widgets, global styles and templates through the REST API.
   (`wp_restore_template_part_snapshot`). WordPress 6.4 and newer also keep revisions, but only after a part's first
   edit, so the local copy is the safety net for the first change.
 - Widgets have no revisions either. Every widget change saves a copy of the whole widget area in `backups/widgets/`; ask
-  Claude to "restore that widget snapshot" (`wp_restore_widget_snapshot`). Restoring also removes widgets added after
-  the snapshot, so say so before you ask.
+  Claude to "restore that widget snapshot" (`wp_restore_widget_snapshot`). Restoring moves widgets added after the
+  snapshot to "Inactive Widgets" (their settings are kept, you can put them back in WP admin), so say so before you ask.
 - Deleting a menu item or widget is on the blocked list like the other deletes. Remove those in WP admin, or have Claude
-  change what is there instead.
+  change what is there instead. Claude's widget delete only moves a widget to "Inactive Widgets"; nothing is erased.
+- These copies live in the `backups/` folder of the `mcp-wordpress` folder you cloned (owner-only, never uploaded). If
+  you installed with a global `npm install` instead, they sit inside the package folder and an upgrade can wipe them:
+  set `MCP_WP_MENU_BACKUP_DIR`, `MCP_WP_WIDGET_BACKUP_DIR` and `MCP_WP_TEMPLATE_PART_BACKUP_DIR` to folders of your own.
 
 ---
 

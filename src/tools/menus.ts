@@ -10,6 +10,7 @@ import {
   restoreMenuSnapshot,
   writeMenuSnapshot,
 } from "./menuSnapshots.js";
+import { freshGet } from "./localSnapshots.js";
 import { parseId, toolParams } from "./params.js";
 import { themeRestError } from "./themeShared.js";
 
@@ -179,7 +180,7 @@ export class MenuTools {
 
   public async handleListMenus(client: WordPressClient, _params: Record<string, unknown>): Promise<unknown> {
     try {
-      const menus = await client.get<MenuRecord[]>("menus?context=edit&per_page=100");
+      const menus = await freshGet<MenuRecord[]>(client, "menus?context=edit&per_page=100");
       if (menus.length === 0) return "No menus found.";
       return (
         `Found ${menus.length} menus:\n\n` +
@@ -198,7 +199,7 @@ export class MenuTools {
   public async handleGetMenu(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     const id = parseId(params);
     try {
-      const menu = await client.get<MenuRecord>(`menus/${id}?context=edit`);
+      const menu = await freshGet<MenuRecord>(client, `menus/${id}?context=edit`);
       const items = await fetchMenuItems(client, id);
       const body = items.length
         ? orderTree(items)
@@ -302,7 +303,7 @@ export class MenuTools {
 
   /** The menu an item belongs to, read from the item itself (WordPress returns it as a number). */
   private async menuIdOf(client: WordPressClient, itemId: number): Promise<number> {
-    const item = await client.get<{ menus?: number | number[] }>(`menu-items/${itemId}?context=edit`);
+    const item = await freshGet<{ menus?: number | number[] }>(client, `menu-items/${itemId}?context=edit`);
     const menuId = Array.isArray(item.menus) ? item.menus[0] : item.menus;
     if (!menuId)
       throw invalid(`Menu item ${itemId} is not in any menu, so there is nothing to snapshot. Nothing was changed.`);

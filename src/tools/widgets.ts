@@ -2,6 +2,7 @@ import { WordPressClient } from "@/client/api.js";
 import { WordPressAPIError } from "@/types/client.js";
 import type { MCPToolSchema } from "@/types/mcp.js";
 import { isUnsafePlainText, isUnsafeWordPressContent } from "@/security/InputValidator.js";
+import { freshGet } from "./localSnapshots.js";
 import { toolParams } from "./params.js";
 import { themeRestError } from "./themeShared.js";
 import {
@@ -112,7 +113,7 @@ export class WidgetTools {
       {
         name: "wp_delete_widget",
         description:
-          "Permanently deletes a widget. Saves a snapshot of its area first; undo with wp_restore_widget_snapshot (block widgets can be recreated; other types cannot).",
+          "Takes a widget out of its widget area by moving it to Inactive Widgets (its settings are kept and it can be put back in WP admin). Saves a snapshot of the area first; undo with wp_restore_widget_snapshot.",
         inputSchema: {
           type: "object",
           properties: { id: { type: "string", description: "The widget ID from wp_get_widget_area." } },
@@ -124,7 +125,7 @@ export class WidgetTools {
         name: "wp_restore_widget_snapshot",
         description:
           "Puts a widget area back the way a saved snapshot had it: restores widget settings and area, recreates deleted block widgets, " +
-          "and REMOVES widgets that were added after the snapshot (only when every earlier step worked). The current state is snapshotted first. " +
+          "and MOVES widgets that were added after the snapshot to Inactive Widgets (only when every earlier step worked; nothing is permanently deleted). The current state is snapshotted first. " +
           "Snapshot names are shown after every widget change; they live in backups/widgets/<site>/. Widget order is not restored.",
         inputSchema: {
           type: "object",
@@ -140,7 +141,7 @@ export class WidgetTools {
 
   public async handleListWidgetAreas(client: WordPressClient, _params: Record<string, unknown>): Promise<unknown> {
     try {
-      const sidebars = await client.get<Sidebar[]>("sidebars?context=edit&per_page=100");
+      const sidebars = await freshGet<Sidebar[]>(client, "sidebars?context=edit&per_page=100");
       if (sidebars.length === 0) return "No widget areas found: this theme has no widget areas.";
       return (
         `Found ${sidebars.length} widget areas:\n\n` +
@@ -159,7 +160,7 @@ export class WidgetTools {
   public async handleGetWidgetArea(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     try {
       const id = assertWidgetId(toolParams<{ id: string }>(params).id, "widget area");
-      const sidebar = await client.get<Sidebar>(`sidebars/${enc(id)}?context=edit`);
+      const sidebar = await freshGet<Sidebar>(client, `sidebars/${enc(id)}?context=edit`);
       const widgets = await fetchWidgets(client, id);
       return `**Widget area ${sidebar.id}: ${sidebar.name ?? sidebar.id}**\n\n${widgets.length ? widgets.map(describeWidget).join("\n") : "(no widgets)"}`;
     } catch (_error) {
@@ -171,6 +172,8 @@ export class WidgetTools {
     const { sidebar, content } = toolParams<{ sidebar: string; content: string }>(params);
     try {
       assertWidgetId(sidebar, "widget area");
+      if (typeof content !== "string") throw invalid("content must be text (block markup).");
+      if (!content.trim()) throw invalid("Refusing to create an empty widget: content is blank.");
       if (isUnsafeWordPressContent(content)) throw unsafeContent();
       const snapshot = await writeWidgetSnapshot(client, sidebar);
       const created = await client.post<WidgetRecord>("widgets", {
@@ -191,11 +194,14 @@ export class WidgetTools {
     let type = "unknown";
     try {
       assertWidgetId(id);
+      for (const [name, value] of Object.entries({ content, text, title })) {
+        if (value !== undefined && typeof value !== "string") throw invalid(`${name} must be text.`);
+      }
       for (const html of [content, text])
         if (html !== undefined && isUnsafeWordPressContent(html)) throw unsafeContent();
       if (title !== undefined && isUnsafePlainText(title)) throw unsafeContent();
 
-      const widget = await client.get<WidgetRecord>(`widgets/${enc(id)}?context=edit`);
+      const widget = await freshGet<WidgetRecord>(client, `widgets/${enc(id)}?context=edit`);
       type = widget.id_base ?? "unknown";
       if (!RAW_TYPES.has(type) || !widget.instance?.raw) {
         throw invalid(
@@ -235,11 +241,12 @@ export class WidgetTools {
     const { id } = toolParams<{ id: string }>(params);
     try {
       assertWidgetId(id);
-      const widget = await client.get<WidgetRecord>(`widgets/${enc(id)}?context=edit`);
+      const widget = await freshGet<WidgetRecord>(client, `widgets/${enc(id)}?context=edit`);
       if (!widget.sidebar) throw invalid(`Widget ${id} is not in a widget area, so nothing was changed.`);
       const snapshot = await writeWidgetSnapshot(client, widget.sidebar);
-      await client.delete(`widgets/${enc(id)}?force=true`);
-      return `✅ Widget ${id} deleted from ${widget.sidebar}.\n- Snapshot saved first: ${snapshot.file} (undo with wp_restore_widget_snapshot)`;
+      // No force: core then moves the widget to wp_inactive_widgets with its settings intact.
+      await client.delete(`widgets/${enc(id)}`);
+      return `✅ Widget ${id} moved from ${widget.sidebar} to Inactive Widgets (settings kept; reactivate it in WP admin > Appearance > Widgets).\n- Snapshot saved first: ${snapshot.file} (undo with wp_restore_widget_snapshot)`;
     } catch (_error) {
       themeRestError("Failed to delete widget", _error, "widgets");
     }
@@ -257,11 +264,13 @@ export class WidgetTools {
           : `✅ Widget area ${data.sidebar_id} restored from ${snapshot}.`,
         report.changes.length
           ? report.changes.map((c) => `- ${c}`).join("\n")
-          : "- Nothing needed changing; the area already matched.",
+          : report.failed.length
+            ? "- No changes were made."
+            : "- Nothing needed changing; the area already matched.",
       ];
       if (report.failed.length) lines.push("Problems:", ...report.failed.map((f) => `- ${f}`));
       if (report.deletionSkipped)
-        lines.push("Widgets added after the snapshot were NOT removed, because a step above failed.");
+        lines.push("Widgets added after the snapshot were NOT moved to Inactive Widgets, because a step above failed.");
       lines.push(`The area as it was before this restore is saved as ${report.backup}.`);
       return lines.join("\n");
     } catch (_error) {

@@ -3,7 +3,14 @@ import { WordPressClient } from "@/client/api.js";
 import { WordPressAPIError } from "@/types/client.js";
 import { isUnsafePlainText } from "@/security/InputValidator.js";
 import { getErrorMessage } from "@/utils/error.js";
-import { assertSameSite, backupRoot, resolveSnapshotFile, siteKey, writeSnapshotFile } from "./localSnapshots.js";
+import {
+  assertSameSite,
+  freshGet,
+  backupRoot,
+  resolveSnapshotFile,
+  siteKey,
+  writeSnapshotFile,
+} from "./localSnapshots.js";
 
 /**
  * Local undo for menus. WordPress keeps no revisions of menus or menu items, so before every
@@ -58,7 +65,8 @@ export async function fetchMenuItems(client: WordPressClient, menuId: number): P
   // statuses like other post endpoints; "any" is not used because it is only valid for some roles.
   const status = "publish,draft,pending,private";
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const batch = await client.get<MenuItemRecord[]>(
+    const batch = await freshGet<MenuItemRecord[]>(
+      client,
       `menu-items?menus=${menuId}&per_page=${PAGE_SIZE}&page=${page}&status=${status}&context=edit`,
     );
     items.push(...batch);
@@ -74,7 +82,7 @@ export async function writeMenuSnapshot(
   menuId: number,
 ): Promise<{ file: string; path: string }> {
   assertMenuId(menuId);
-  const menu = await client.get<Record<string, unknown>>(`menus/${menuId}?context=edit`);
+  const menu = await freshGet<Record<string, unknown>>(client, `menus/${menuId}?context=edit`);
   const items = await fetchMenuItems(client, menuId);
   const takenAt = new Date().toISOString();
   const snapshot: MenuSnapshot = {
@@ -120,6 +128,22 @@ export interface RestoreReport {
   failed: string[];
   /** Items added since the snapshot that were left alone because an earlier step failed. */
   skippedDeletes: string[];
+}
+
+/**
+ * Text fields of a restored item that are new compared with the live item and look like script. A crafted
+ * snapshot must not put script on the site, but values already live (unchanged) are never questioned.
+ * Titles and attributes are plain text, so the plain-text check applies; URLs are checked where they are used.
+ */
+function unsafeNewFields(item: MenuItemRecord, now: MenuItemRecord | undefined): string[] {
+  const candidates: Array<[string, unknown, unknown]> = [
+    ["title", titleOf(item), now ? titleOf(now) : undefined],
+    ["attr_title", item.attr_title, now?.attr_title],
+    ["description", item.description, now?.description],
+  ];
+  return candidates
+    .filter(([, v, live]) => typeof v === "string" && v !== live && isUnsafePlainText(v))
+    .map(([k]) => k);
 }
 
 const RESTORED_FIELDS = [
@@ -191,6 +215,12 @@ export async function restoreMenuSnapshot(client: WordPressClient, snapshot: Men
     // A parent loop in a hand-edited file: create what is left at the top level instead of spinning.
     if (!batch.length) batch = pending;
     for (const item of batch) {
+      const unsafe = unsafeNewFields(item, undefined);
+      if (unsafe.length) {
+        failed.push(`Refused to recreate ${label(item)}: unsafe text in ${unsafe.join(", ")}`);
+        newIds.set(item.id, 0); // children fall back to the top level instead of waiting forever
+        continue;
+      }
       const parent = newIds.get(item.parent) ?? (currentById.has(item.parent) ? item.parent : 0);
       await attempt(`Could not recreate ${label(item)}`, async () => {
         const created = await client.post<{ id: number }>("menu-items", createBody(item, menuId, parent));
@@ -205,6 +235,11 @@ export async function restoreMenuSnapshot(client: WordPressClient, snapshot: Men
   for (const item of snapshot.items) {
     const now = currentById.get(item.id);
     if (!now) continue;
+    const unsafe = unsafeNewFields(item, now);
+    if (unsafe.length) {
+      failed.push(`Refused to restore ${label(item)}: unsafe text in ${unsafe.join(", ")}`);
+      continue;
+    }
     const parent = newIds.get(item.parent) ?? item.parent;
     const body: Record<string, unknown> = {};
     const what: string[] = [];

@@ -2,6 +2,7 @@ import { WordPressClient } from "@/client/api.js";
 import { WordPressAPIError } from "@/types/client.js";
 import type { JSONSchemaProperty, MCPToolSchema } from "@/types/mcp.js";
 import { isUnsafeWordPressContent } from "@/security/InputValidator.js";
+import { freshGet } from "./localSnapshots.js";
 import { parseId, toolParams } from "./params.js";
 import {
   readTemplatePartSnapshot,
@@ -151,7 +152,7 @@ export class TemplatePartTools {
 
   public async handleListTemplateParts(client: WordPressClient, _params: Record<string, unknown>): Promise<unknown> {
     try {
-      const parts = await client.get<TemplatePart[]>("template-parts");
+      const parts = await freshGet<TemplatePart[]>(client, "template-parts");
       if (parts.length === 0) return NO_TEMPLATE_PARTS_MESSAGE;
       return (
         `Found ${parts.length} template parts:\n\n` +
@@ -170,7 +171,7 @@ export class TemplatePartTools {
   public async handleGetTemplatePart(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     const { id } = toolParams<{ id: string }>(params);
     try {
-      const part = await client.get<TemplatePart>(`template-parts/${templatePartPath(id)}?context=edit`);
+      const part = await freshGet<TemplatePart>(client, `template-parts/${templatePartPath(id)}?context=edit`);
       if (part.content?.raw === undefined) {
         throw new WordPressAPIError(
           "WordPress did not return the raw content. The account needs edit_theme_options to read it for editing.",
@@ -200,7 +201,7 @@ export class TemplatePartTools {
       const path = templatePartPath(id);
       // Save what is there now before touching it. A part still served from a theme file has no
       // revision to fall back on after this edit, and if the copy cannot be saved nothing is changed.
-      const current = await client.get<TemplatePart>(`template-parts/${path}?context=edit`);
+      const current = await freshGet<TemplatePart>(client, `template-parts/${path}?context=edit`);
       if (current.content?.raw === undefined) {
         throw new WordPressAPIError(
           "WordPress did not return the current raw content, so it cannot be saved before the edit. The account needs edit_theme_options.",
@@ -236,7 +237,7 @@ export class TemplatePartTools {
       }
       const path = templatePartPath(data.part_id);
       // Snapshot what is live now first, so the restore can itself be undone.
-      const current = await client.get<TemplatePart>(`template-parts/${path}?context=edit`);
+      const current = await freshGet<TemplatePart>(client, `template-parts/${path}?context=edit`);
       if (current.content?.raw === undefined) {
         throw new WordPressAPIError(
           "WordPress did not return the current raw content. The account needs edit_theme_options.",
@@ -258,7 +259,8 @@ export class TemplatePartTools {
   ): Promise<unknown> {
     const { id } = toolParams<{ id: string }>(params);
     try {
-      const revisions = await client.get<TemplatePartRevision[]>(
+      const revisions = await freshGet<TemplatePartRevision[]>(
+        client,
         `template-parts/${templatePartPath(id)}/revisions?per_page=20&orderby=date&order=desc`,
       );
       if (revisions.length === 0) return `No saved revisions for ${id} yet.`;
@@ -283,7 +285,8 @@ export class TemplatePartTools {
     const revisionId = parseId({ id: (params as { revision_id?: unknown }).revision_id });
     try {
       const path = templatePartPath(id);
-      const revision = await client.get<TemplatePartRevision>(
+      const revision = await freshGet<TemplatePartRevision>(
+        client,
         `template-parts/${path}/revisions/${revisionId}?context=edit`,
       );
       if (revision.content?.raw === undefined) {

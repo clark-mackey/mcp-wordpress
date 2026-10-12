@@ -244,8 +244,11 @@ setup except two more deny rules, `wp_delete_menu_item` and `wp_delete_widget`, 
 - **Footer widgets** (classic themes): `wp_list_widget_areas`, `wp_get_widget_area`, `wp_update_widget` (block, core
   Text and Custom HTML only), `wp_create_widget` (block only). Other plugin widgets are readable by type only. Needs the
   same mu-plugin. Each change snapshots the area to `backups/widgets/<site-key>/` (bound to the full site URL);
-  `wp_restore_widget_snapshot` reverts, recreates deleted block widgets and removes widgets added later (skipped if any
-  step failed). Warn the person before restoring.
+  `wp_restore_widget_snapshot` reverts, recreates deleted block widgets and moves widgets added later to Inactive
+  Widgets (never force-deleted; skipped if any step failed). `wp_delete_widget` also only moves to Inactive Widgets.
+  Warn the person before restoring.
+- Snapshots live in `backups/` of the cloned repo. For a global npm install set `MCP_WP_MENU_BACKUP_DIR`,
+  `MCP_WP_WIDGET_BACKUP_DIR`, `MCP_WP_TEMPLATE_PART_BACKUP_DIR` so upgrades do not wipe them.
 - **Does not work**: classic theme PHP headers and footers, page builders, the Customizer. The tools say "classic theme"
   in plain words; relay that and stop.
 - **Permission**: Editors lack `edit_theme_options`. Have the person copy

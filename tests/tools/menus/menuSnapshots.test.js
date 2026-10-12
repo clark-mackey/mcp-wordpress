@@ -35,7 +35,7 @@ const item = (id, title, over = {}) => ({
 function makeClient(items, host = "https://test-site.com") {
   const calls = [];
   let nextId = 100;
-  return {
+  const client = {
     calls,
     getSiteUrl: () => host,
     get: vi.fn(async (endpoint) => {
@@ -51,7 +51,9 @@ function makeClient(items, host = "https://test-site.com") {
       calls.push(["DELETE", endpoint]);
       return { deleted: true };
     }),
+    requestWithMetadata: vi.fn(async (_m, e) => ({ data: await client.get(e) })),
   };
+  return client;
 }
 
 describe("menu snapshots", () => {
@@ -339,5 +341,51 @@ describe("menu snapshot hardening", () => {
     const client = makeClient([]);
     await restoreMenuSnapshot(client, snapshotOf([item(1, "Soon", { status: "draft" })]));
     expect(client.calls.find((c) => c[1] === "menu-items")[2].status).toBe("draft");
+  });
+});
+
+describe("menu snapshots and the read cache", () => {
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "menu-cache-"));
+    process.env.MCP_WP_MENU_BACKUP_DIR = dir;
+  });
+  afterEach(() => {
+    delete process.env.MCP_WP_MENU_BACKUP_DIR;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("snapshots read through the uncached path, so two in a row see current data", async () => {
+    let items = [item(1, "v1")];
+    const client = {
+      getSiteUrl: () => "https://test-site.com",
+      get: vi.fn(async () => {
+        throw new Error("cached path must not be used");
+      }),
+      requestWithMetadata: vi.fn(async (_m, e) => ({ data: e.startsWith("menus/") ? { id: 5 } : items })),
+    };
+    const a = await writeMenuSnapshot(client, 5);
+    items = [item(1, "v2")];
+    const b = await writeMenuSnapshot(client, 5);
+    expect(JSON.parse(readFileSync(a.path, "utf8")).items[0].title.raw).toBe("v1");
+    expect(JSON.parse(readFileSync(b.path, "utf8")).items[0].title.raw).toBe("v2");
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
+  it("refuses new script in a crafted title but allows unchanged text", async () => {
+    const now = [item(1, "Home"), item(2, "Safe")];
+    const client = makeClient(now);
+    const snap = {
+      version: 1,
+      site_url: "https://test-site.com",
+      taken_at: "t",
+      menu_id: 5,
+      menu: {},
+      items: [item(1, "<img src=x onerror=alert(1)>"), item(2, "Safe2", { menu_order: 2 })],
+    };
+    const report = await restoreMenuSnapshot(client, snap);
+    expect(report.failed).toEqual([expect.stringContaining("unsafe text in title")]);
+    expect(client.calls.find((c) => c[1] === "menu-items/1")).toBeUndefined();
+    expect(client.calls.find((c) => c[1] === "menu-items/2")[2]).toEqual({ title: "Safe2" });
   });
 });
