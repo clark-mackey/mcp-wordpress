@@ -122,7 +122,8 @@ do not need it.
 
 **What works**
 
-- **Menus**: on any theme. Claude can list menus, add, rename, move and delete menu items.
+- **Menus**: on any theme. Claude can list menus and add, rename and move menu items. Deleting a menu item is blocked
+  (see below).
 - **Header and footer**: only on block themes (for example Twenty Twenty-Four), where they are "template parts".
 - **Footer widgets**: on classic themes the footer is often a "widget area". Claude can read and edit block widgets and
   the built-in Text and Custom HTML widgets. Widgets from other plugins can only be seen by type; edit those in WP
@@ -139,21 +140,24 @@ WordPress keeps menus and header/footer away from Editors. To allow it for the A
 `wordpress/mu-plugins/mcp-wordpress-theme-access.php` from the `mcp-wordpress` folder into the site's
 `wp-content/mu-plugins/` folder (create it if missing). If your AI user is not called `ai-editor`, change the name at
 the top of the file. It gives that one user one extra permission, and only when connecting with the app password, never
-when anyone logs in through the browser. Delete the file to turn it off.
+when anyone logs in through the browser. Delete the file to turn it off. Note that this permission also lets that app
+password edit widgets, global styles and templates through the REST API.
 
 **Undo, and back up first**
 
 - Menus have no WordPress revisions. Before every menu change, the tool saves a copy of the whole menu in the
   `backups/menus/` folder inside `mcp-wordpress` (owner-only files, never uploaded). Ask Claude to "restore that menu
-  snapshot" (`wp_restore_menu_snapshot`) to undo.
-- Header and footer changes go live on every page at once. WordPress 6.4 or newer keeps revisions of them, and Claude
-  can restore one (`wp_restore_template_part_revision`). On older WordPress there is no undo, so make a site backup
-  first.
+  snapshot" (`wp_restore_menu_snapshot`) to undo. Restoring also removes menu items added after the snapshot, so say so
+  before you ask.
+- Header and footer changes go live on every page at once. Before every change the tool saves a copy of the current
+  content in `backups/template-parts/`; ask Claude to "restore that template part snapshot"
+  (`wp_restore_template_part_snapshot`). WordPress 6.4 and newer also keep revisions, but only after a part's first
+  edit, so the local copy is the safety net for the first change.
 - Widgets have no revisions either. Every widget change saves a copy of the whole widget area in `backups/widgets/`; ask
   Claude to "restore that widget snapshot" (`wp_restore_widget_snapshot`). Restoring also removes widgets added after
   the snapshot, so say so before you ask.
-- Deleting a menu item or widget is on the blocked list like the other deletes. Ask Claude to change the menu in a way
-  that does not need a delete, or remove the item in WP admin.
+- Deleting a menu item or widget is on the blocked list like the other deletes. Remove those in WP admin, or have Claude
+  change what is there instead.
 
 ---
 

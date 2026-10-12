@@ -17,6 +17,7 @@ import {
   readMenuSnapshot,
   restoreMenuSnapshot,
 } from "@/tools/menuSnapshots.js";
+import { siteKey } from "@/tools/localSnapshots.js";
 
 const item = (id, title, over = {}) => ({
   id,
@@ -69,7 +70,8 @@ describe("menu snapshots", () => {
     const { file, path } = await writeMenuSnapshot(client, 5);
 
     expect(file).toMatch(/^5-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json$/);
-    expect(path).toBe(join(dir, "test-site.com_8443", file));
+    expect(siteKey(client)).toMatch(/^test-site\.com_8443-[0-9a-f]{8}$/);
+    expect(path).toBe(join(dir, siteKey(client), file));
     expect(statSync(path).mode & 0o777).toBe(0o600);
     const saved = JSON.parse(readFileSync(path, "utf8"));
     expect(saved).toMatchObject({ version: 1, menu_id: 5, menu: { name: "Main" } });
@@ -84,7 +86,7 @@ describe("menu snapshots", () => {
       const a = await writeMenuSnapshot(client, 5);
       const b = await writeMenuSnapshot(client, 5);
       expect(a.file).not.toBe(b.file);
-      expect(readdirSync(join(dir, "test-site.com"))).toHaveLength(2);
+      expect(readdirSync(join(dir, siteKey(client)))).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
@@ -112,7 +114,7 @@ describe("menu snapshots", () => {
     it("accepts a bare file name and a path inside the folder", async () => {
       const real = await resolveSnapshotPath(client, file);
       expect(real.endsWith(file)).toBe(true);
-      await expect(resolveSnapshotPath(client, join(dir, "test-site.com", file))).resolves.toBe(real);
+      await expect(resolveSnapshotPath(client, join(dir, siteKey(client), file))).resolves.toBe(real);
     });
 
     it.each(["../secret.json", "test-site.com/../../etc/passwd.json", "..\\x.json", "a/../../b.json"])(
@@ -137,7 +139,7 @@ describe("menu snapshots", () => {
     it("rejects a symlink that points outside the folder", async () => {
       const outside = join(tmpdir(), `outside-${Date.now()}.json`);
       writeFileSync(outside, "{}");
-      symlinkSync(outside, join(dir, "test-site.com", "evil.json"));
+      symlinkSync(outside, join(dir, siteKey(client), "evil.json"));
       try {
         await expect(resolveSnapshotPath(client, "evil.json")).rejects.toThrow(/inside the backups\/menus folder/);
       } finally {
@@ -153,12 +155,12 @@ describe("menu snapshots", () => {
     });
 
     it("rejects files that are not menu snapshots", async () => {
-      const bad = join(dir, "test-site.com", "5-bad.json");
-      mkdirSync(join(dir, "test-site.com"), { recursive: true });
+      const bad = join(dir, siteKey(client), "5-bad.json");
+      mkdirSync(join(dir, siteKey(client)), { recursive: true });
       writeFileSync(bad, JSON.stringify({ version: 1, items: "nope" }));
-      await expect(readMenuSnapshot(bad)).rejects.toThrow(/does not look like a menu snapshot/);
+      await expect(readMenuSnapshot(bad, client)).rejects.toThrow(/does not look like a menu snapshot/);
       writeFileSync(bad, "not json");
-      await expect(readMenuSnapshot(bad)).rejects.toThrow(/not readable JSON/);
+      await expect(readMenuSnapshot(bad, client)).rejects.toThrow(/not readable JSON/);
     });
   });
 
@@ -254,5 +256,88 @@ describe("menu snapshots", () => {
       );
       expect(report.changes).toHaveLength(2);
     });
+  });
+});
+
+describe("menu snapshot hardening", () => {
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "menu-snap2-"));
+    process.env.MCP_WP_MENU_BACKUP_DIR = dir;
+  });
+  afterEach(() => {
+    delete process.env.MCP_WP_MENU_BACKUP_DIR;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const snapshotOf = (items, site = "https://test-site.com") => ({
+    version: 1,
+    site_url: site,
+    taken_at: "t",
+    menu_id: 5,
+    menu: {},
+    items,
+  });
+
+  it("keeps two installs on one host apart (same host, different path) and refuses a forged site_url", async () => {
+    const root = makeClient([item(1, "Home")], "https://test-site.com");
+    const blog = makeClient([item(1, "Home")], "https://test-site.com/blog");
+    expect(siteKey(root)).not.toBe(siteKey(blog));
+
+    const { path, file } = await writeMenuSnapshot(root, 5);
+    await expect(resolveSnapshotPath(blog, file)).rejects.toThrow(/no snapshot file found/);
+    await expect(resolveSnapshotPath(blog, path)).rejects.toThrow(/different site/);
+
+    // Copy it into the other install's folder: the recorded URL still gives it away.
+    const forged = JSON.parse(readFileSync(path, "utf8"));
+    const dest = join(dir, siteKey(blog));
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "5-copy.json"), JSON.stringify(forged));
+    const real = await resolveSnapshotPath(blog, "5-copy.json");
+    await expect(readMenuSnapshot(real, blog)).rejects.toThrow(/not https:\/\/test-site\.com\/blog/);
+  });
+
+  it("asks for drafts too and throws instead of saving a truncated snapshot", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => item(i + 1, `n${i}`));
+    const client = makeClient([]);
+    client.get.mockImplementation(async (endpoint) => (endpoint.startsWith("menus/5") ? { id: 5 } : full));
+    await expect(writeMenuSnapshot(client, 5)).rejects.toThrow(/more than a snapshot can safely hold/);
+    expect(client.get.mock.calls.some(([e]) => e.includes("status=publish,draft,pending,private"))).toBe(true);
+    expect(() => readdirSync(dir)).not.toThrow();
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("rejects a non-positive menu id", async () => {
+    await expect(writeMenuSnapshot(makeClient([]), 0)).rejects.toThrow(/positive integer/);
+  });
+
+  it("restores a retargeted link and changed attributes, only for fields the snapshot carries", async () => {
+    const wanted = item(1, "About", {
+      type: "post_type",
+      object: "page",
+      object_id: 12,
+      target: "_blank",
+      classes: ["a", "b"],
+    });
+    const now = item(1, "About", { type: "post_type", object: "page", object_id: 99, target: "", classes: ["a"] });
+    const client = makeClient([now]);
+    const report = await restoreMenuSnapshot(client, snapshotOf([wanted]));
+    const body = client.calls.find((c) => c[1] === "menu-items/1")[2];
+    expect(body).toEqual({ object_id: 12, target: "_blank", classes: ["a", "b"] });
+    expect(report.changes[0]).toContain("object_id, target, classes");
+  });
+
+  it("does not delete items added since the snapshot when an earlier step failed, and says what it skipped", async () => {
+    const client = makeClient([item(1, "Wrong"), item(8, "Extra", { menu_order: 8 })]);
+    client.post.mockRejectedValue(new Error("boom"));
+    const report = await restoreMenuSnapshot(client, snapshotOf([item(1, "Home")]));
+    expect(report.failed).toHaveLength(1);
+    expect(client.delete).not.toHaveBeenCalled();
+    expect(report.skippedDeletes).toEqual(['"Extra" (item 8)']);
+  });
+
+  it("recreates a draft item as a draft", async () => {
+    const client = makeClient([]);
+    await restoreMenuSnapshot(client, snapshotOf([item(1, "Soon", { status: "draft" })]));
+    expect(client.calls.find((c) => c[1] === "menu-items")[2].status).toBe("draft");
   });
 });

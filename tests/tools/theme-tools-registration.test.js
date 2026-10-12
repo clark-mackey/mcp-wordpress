@@ -13,6 +13,7 @@ const THEME_TOOLS = [
   "wp_update_template_part",
   "wp_get_template_part_revisions",
   "wp_restore_template_part_revision",
+  "wp_restore_template_part_snapshot",
   "wp_list_widget_areas",
   "wp_get_widget_area",
   "wp_update_widget",
@@ -22,7 +23,7 @@ const THEME_TOOLS = [
 ];
 
 describe("theme tool registration", () => {
-  it("registers every tool through the registry, 105 in total", () => {
+  it("registers every tool through the registry, 106 in total", () => {
     const tools = new Map();
     const server = {
       tool: vi.fn((name, _description, schema) => tools.set(name, schema)),
@@ -30,7 +31,7 @@ describe("theme tool registration", () => {
     };
     new ToolRegistry(server, new Map([["site1", {}]])).registerAllTools();
 
-    expect(tools.size).toBe(105);
+    expect(tools.size).toBe(106);
     for (const name of THEME_TOOLS) expect(tools.has(name), name).toBe(true);
   });
 

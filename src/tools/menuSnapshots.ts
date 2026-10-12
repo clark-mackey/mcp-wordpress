@@ -1,15 +1,14 @@
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { WordPressClient } from "@/client/api.js";
 import { WordPressAPIError } from "@/types/client.js";
 import { isUnsafePlainText } from "@/security/InputValidator.js";
 import { getErrorMessage } from "@/utils/error.js";
+import { assertSameSite, backupRoot, resolveSnapshotFile, siteKey, writeSnapshotFile } from "./localSnapshots.js";
 
 /**
  * Local undo for menus. WordPress keeps no revisions of menus or menu items, so before every
  * menu-item create, update or delete the whole menu (menu + all items) is written to
- * `<repo root>/backups/menus/<site-host>/<menuId>-<timestamp>.json`, and wp_restore_menu_snapshot
+ * `<repo root>/backups/menus/<host>-<hash of site URL>/<menuId>-<timestamp>.json`, and wp_restore_menu_snapshot
  * puts a menu back from one of those files. If the snapshot cannot be written, the change is not made.
  */
 
@@ -27,6 +26,7 @@ export interface MenuItemRecord {
   classes?: string[];
   xfn?: string[];
   description?: string;
+  status?: string;
 }
 
 export interface MenuSnapshot {
@@ -41,28 +41,31 @@ export interface MenuSnapshot {
 const PAGE_SIZE = 100;
 const MAX_PAGES = 20;
 
-/** Backups live in the repo (dist/tools and src/tools both sit two levels below the root). MCP_WP_MENU_BACKUP_DIR overrides it, mainly for tests. */
-export function backupRoot(): string {
-  return (
-    process.env.MCP_WP_MENU_BACKUP_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "..", "backups", "menus")
-  );
-}
+export const menuBackupRoot = (): string => backupRoot("menus", "MCP_WP_MENU_BACKUP_DIR");
+export { siteKey };
 
-/** Folder name for a site: its host (with port), reduced to filename-safe characters. */
-export function siteHost(client: WordPressClient): string {
-  return new URL(client.getSiteUrl()).host.toLowerCase().replace(/[^a-z0-9.-]/g, "_");
-}
+const assertMenuId = (id: unknown): number => {
+  if (!Number.isInteger(id) || (id as number) <= 0) {
+    throw new WordPressAPIError("Menu ID must be a positive integer.", 400, "INVALID_PARAMETER");
+  }
+  return id as number;
+};
 
 export async function fetchMenuItems(client: WordPressClient, menuId: number): Promise<MenuItemRecord[]> {
   const items: MenuItemRecord[] = [];
+  // /wp/v2/menu-items answers only status=publish by default, which would leave draft items out of a
+  // snapshot (and make restore delete nothing it should keep). Its status filter takes a list of post
+  // statuses like other post endpoints; "any" is not used because it is only valid for some roles.
+  const status = "publish,draft,pending,private";
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = await client.get<MenuItemRecord[]>(
-      `menu-items?menus=${menuId}&per_page=${PAGE_SIZE}&page=${page}&context=edit`,
+      `menu-items?menus=${menuId}&per_page=${PAGE_SIZE}&page=${page}&status=${status}&context=edit`,
     );
     items.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
+    if (batch.length < PAGE_SIZE) return items;
   }
-  return items;
+  // Every page up to the cap was full: stop rather than save a truncated snapshot restore would trust.
+  throw new Error(`Menu ${menuId} has more than ${MAX_PAGES * PAGE_SIZE} items, more than a snapshot can safely hold.`);
 }
 
 /** Writes the menu's current state to disk and returns where. Throws if the menu cannot be read or the file cannot be written. */
@@ -70,6 +73,7 @@ export async function writeMenuSnapshot(
   client: WordPressClient,
   menuId: number,
 ): Promise<{ file: string; path: string }> {
+  assertMenuId(menuId);
   const menu = await client.get<Record<string, unknown>>(`menus/${menuId}?context=edit`);
   const items = await fetchMenuItems(client, menuId);
   const takenAt = new Date().toISOString();
@@ -81,56 +85,13 @@ export async function writeMenuSnapshot(
     menu,
     items,
   };
-
-  const dir = join(backupRoot(), siteHost(client));
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  // Colons are not allowed in Windows filenames, so the timestamp uses dashes.
-  const stamp = takenAt.replace(/:/g, "-");
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const file = `${menuId}-${stamp}${attempt ? `-${attempt}` : ""}.json`;
-    const path = join(dir, file);
-    try {
-      // "wx": never overwrite an existing snapshot (two changes in the same millisecond).
-      await writeFile(path, JSON.stringify(snapshot, null, 2), { mode: 0o600, flag: "wx" });
-      return { file, path };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-  }
-  throw new Error("Could not pick a free snapshot file name.");
+  return writeSnapshotFile(client, menuBackupRoot(), String(menuId), takenAt, snapshot);
 }
 
-/**
- * Accepts a snapshot file name (looked up in this site's folder) or a path inside the backups/menus
- * folder, and returns the real path. Anything that leaves that folder, or belongs to another site, is refused.
- */
-export async function resolveSnapshotPath(client: WordPressClient, input: string): Promise<string> {
-  const refuse = (why: string) => new WordPressAPIError(`Invalid snapshot: ${why}`, 400, "INVALID_PARAMETER");
-  const raw = input.trim();
-  if (!raw || raw.includes("\0")) throw refuse("give a snapshot file name.");
-  if (raw.split(/[\\/]/).includes("..")) throw refuse("paths with '..' are not allowed.");
-  if (!raw.toLowerCase().endsWith(".json")) throw refuse("snapshot files end in .json.");
+export const resolveSnapshotPath = (client: WordPressClient, input: string): Promise<string> =>
+  resolveSnapshotFile(client, menuBackupRoot(), input, "menus");
 
-  const root = backupRoot();
-  const bare = !/[\\/]/.test(raw);
-  const candidate = bare ? join(root, siteHost(client), raw) : isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
-
-  let realRoot: string;
-  let real: string;
-  try {
-    realRoot = await realpath(root);
-    real = await realpath(candidate);
-  } catch {
-    throw refuse(`no snapshot file found at ${candidate}. List the folder to see what exists.`);
-  }
-  if (!real.startsWith(realRoot + sep)) throw refuse("the file must be inside the backups/menus folder.");
-  if (dirname(real) !== join(realRoot, siteHost(client))) {
-    throw refuse("that snapshot belongs to a different site.");
-  }
-  return real;
-}
-
-export async function readMenuSnapshot(path: string): Promise<MenuSnapshot> {
+export async function readMenuSnapshot(path: string, client: WordPressClient): Promise<MenuSnapshot> {
   let data: MenuSnapshot;
   try {
     data = JSON.parse(await readFile(path, "utf8")) as MenuSnapshot;
@@ -143,11 +104,13 @@ export async function readMenuSnapshot(path: string): Promise<MenuSnapshot> {
   }
   const valid =
     data?.version === 1 &&
+    typeof data.site_url === "string" &&
     Number.isInteger(data.menu_id) &&
     Array.isArray(data.items) &&
     data.items.every((i) => Number.isInteger(i?.id) && i.title && Number.isInteger(i.parent));
   if (!valid)
     throw new WordPressAPIError("Snapshot file does not look like a menu snapshot.", 400, "INVALID_PARAMETER");
+  assertSameSite(data.site_url, client);
   return data;
 }
 
@@ -155,8 +118,20 @@ export interface RestoreReport {
   backup: string;
   changes: string[];
   failed: string[];
+  /** Items added since the snapshot that were left alone because an earlier step failed. */
+  skippedDeletes: string[];
 }
 
+const RESTORED_FIELDS = [
+  "type",
+  "object",
+  "object_id",
+  "attr_title",
+  "target",
+  "description",
+  "classes",
+  "xfn",
+] as const;
 const titleOf = (item: MenuItemRecord): string => item.title.raw ?? item.title.rendered ?? "";
 const label = (item: MenuItemRecord): string => `"${titleOf(item)}" (item ${item.id})`;
 
@@ -167,7 +142,7 @@ function createBody(item: MenuItemRecord, menuId: number, parent: number): Recor
     menus: menuId,
     parent,
     menu_order: item.menu_order,
-    status: "publish",
+    status: item.status ?? "publish",
   };
   if (item.type) body.type = item.type;
   if (item.type === "custom") {
@@ -185,7 +160,7 @@ function createBody(item: MenuItemRecord, menuId: number, parent: number): Recor
 /**
  * Puts a menu back the way the snapshot had it: items that still exist get their title, link,
  * parent and order back; deleted items are created again (they get new IDs); items added since
- * are deleted. The menu's current state is snapshotted first, so a restore can itself be undone.
+ * are deleted (only when nothing else failed). The menu's current state is snapshotted first, so a restore can itself be undone.
  * One failing item does not stop the rest; failures are reported.
  */
 export async function restoreMenuSnapshot(client: WordPressClient, snapshot: MenuSnapshot): Promise<RestoreReport> {
@@ -250,6 +225,14 @@ export async function restoreMenuSnapshot(client: WordPressClient, snapshot: Men
       body.menu_order = item.menu_order;
       what.push("order");
     }
+    // A link retargeted to another page or category, or a changed attribute: compare as JSON so arrays
+    // (classes, xfn) work, and only touch fields the snapshot actually carries.
+    for (const key of RESTORED_FIELDS) {
+      if (item[key] !== undefined && JSON.stringify(now[key]) !== JSON.stringify(item[key])) {
+        body[key] = item[key];
+        what.push(key);
+      }
+    }
     if (!what.length) continue;
     await attempt(`Could not restore ${label(item)}`, async () => {
       await client.post(`menu-items/${item.id}`, body);
@@ -257,14 +240,16 @@ export async function restoreMenuSnapshot(client: WordPressClient, snapshot: Men
     });
   }
 
-  // 3. Remove items added since the snapshot.
-  for (const item of current) {
-    if (wantedIds.has(item.id)) continue;
+  // 3. Remove items added since the snapshot, but only if everything above worked: a failed step means
+  // the menu is not in the state the deletes assume, so nothing is deleted.
+  const added = current.filter((i) => !wantedIds.has(i.id));
+  const skippedDeletes = failed.length ? added.map(label) : [];
+  for (const item of failed.length ? [] : added) {
     await attempt(`Could not delete ${label(item)}`, async () => {
       await client.delete(`menu-items/${item.id}?force=true`);
       changes.push(`Deleted ${label(item)} (added after the snapshot)`);
     });
   }
 
-  return { backup, changes, failed };
+  return { backup, changes, failed, skippedDeletes };
 }

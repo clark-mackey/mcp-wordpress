@@ -48,7 +48,7 @@ Manage WordPress sites with natural language through AI tools like Claude Deskto
 
 **Key Advantages:**
 
-- 🏆 **Most Complete**: 105 tools vs 20-30 in alternatives
+- 🏆 **Most Complete**: 106 tools vs 20-30 in alternatives
 - ⚡ **Fastest Setup**: 2-click Claude Desktop installation via DXT
 - 🔒 **CI-Tested**: 2750+ tests across Node 22/24, CodeQL + Trivy security scanning
 - 🎯 **TypeScript Native**: 100% type safety, best-in-class developer experience
@@ -180,7 +180,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 
 | Feature                    | This Server                        | Competition     |
 | -------------------------- | ---------------------------------- | --------------- |
-| **Tools Available**        | 105 tools                          | 20-30 tools     |
+| **Tools Available**        | 106 tools                          | 20-30 tools     |
 | **Claude Desktop DXT**     | ✅ 2-click install                 | ❌ Manual setup |
 | **Multi-Site Support**     | ✅ Up to 50 sites                  | ❌ Single site  |
 | **TypeScript**             | ✅ 100% TypeScript, strict mode    | ⚠️ Partial/None |
@@ -188,7 +188,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 | **Test Coverage**          | ✅ 2750+ tests, ~76% line coverage | ⚠️ Limited      |
 | **Security Scanning**      | ✅ CodeQL + Trivy in CI            | ⚠️ Unknown      |
 
-## 📋 Available Tools (105 Tools)
+## 📋 Available Tools (106 Tools)
 
 ### Content Management
 
@@ -214,7 +214,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 - **⚡ Cache Management** (4 tools) - Performance caching control
 - **📊 Performance Monitoring** (6 tools) - Real-time metrics and optimization
 - **🧭 Menus** (6 tools) - Navigation menus and items, with local snapshots and restore (any theme)
-- **🧱 Template Parts** (5 tools) - Header and footer on block themes, with revision restore (WordPress 6.4+)
+- **🧱 Template Parts** (6 tools) - Header and footer on block themes, with local snapshot and revision restore
 - **🧩 Widgets** (6 tools) - Footer and sidebar widgets (block, Text, Custom HTML), with local snapshots and restore
 - **🛠️ System** (1 tool) - Version checking
 

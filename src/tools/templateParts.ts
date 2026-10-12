@@ -3,6 +3,11 @@ import { WordPressAPIError } from "@/types/client.js";
 import type { JSONSchemaProperty, MCPToolSchema } from "@/types/mcp.js";
 import { isUnsafeWordPressContent } from "@/security/InputValidator.js";
 import { parseId, toolParams } from "./params.js";
+import {
+  readTemplatePartSnapshot,
+  resolveTemplatePartSnapshotPath,
+  writeTemplatePartSnapshot,
+} from "./templatePartSnapshots.js";
 import { NO_TEMPLATE_PARTS_MESSAGE, themeRestError } from "./themeShared.js";
 
 interface TemplatePart {
@@ -34,21 +39,41 @@ const invalid = (message: string) => new WordPressAPIError(message, 400, "INVALI
  */
 export function templatePartPath(id: string): string {
   const parts = id.split("//");
-  const valid = parts.length <= 2 && parts.every((p) => /^[\w.-]+$/.test(p) && p !== "." && p !== "..");
+  const slug = parts[parts.length - 1] ?? "";
+  const theme = parts.length === 2 ? parts[0] : undefined;
+  // The theme half may carry one subdirectory ("parent/child"); the slug never has a slash.
+  const segments = [...(theme?.split("/") ?? []), slug];
+  const valid =
+    parts.length <= 2 &&
+    (theme === undefined || /^(?:[\w.-]+\/)?[\w.-]+$/.test(theme)) &&
+    /^[\w.-]+$/.test(slug) &&
+    segments.every((p) => p !== "." && p !== "..");
   if (!valid) {
     throw invalid(`"${id}" is not a template part ID. Use the ID from wp_list_template_parts, like theme//header.`);
   }
-  return parts.map(encodeURIComponent).join("//");
+  const encode = (half: string) => half.split("/").map(encodeURIComponent).join("/");
+  return parts.map(encode).join("//");
 }
+
+export const isTemplatePartId = (id: string): boolean => {
+  try {
+    templatePartPath(id);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Header and footer through template parts (block themes only). Classic themes have no template
  * parts, which shows up as a missing route or an empty list, and is reported in plain English.
  *
- * Undo: WordPress 6.4+ keeps revisions of template parts (GET /wp/v2/template-parts/{id}/revisions,
- * the same revision records that pages use), so unlike menus there is no local snapshot here.
- * wp_get_template_part_revisions lists them and wp_restore_template_part_revision puts one back.
- * Sites older than 6.4 have no undo for template parts.
+ * Undo has two layers. WordPress 6.4+ keeps revisions of template parts (GET
+ * /wp/v2/template-parts/{id}/revisions), but only once the part is a database post: the FIRST edit of a
+ * part that still comes from a theme file creates that post and leaves no revision of the original. So every
+ * update also saves the current content to a local file first (templatePartSnapshots.ts), which
+ * wp_restore_template_part_snapshot puts back. Revisions (wp_get_template_part_revisions,
+ * wp_restore_template_part_revision) cover later edits on 6.4+.
  */
 export class TemplatePartTools {
   public getTools(): Array<{
@@ -79,14 +104,29 @@ export class TemplatePartTools {
         name: "wp_update_template_part",
         description:
           "Replaces a template part's content (for example the site header or footer) and applies it to the whole site immediately. " +
-          "Send the complete block markup, starting from wp_get_template_part. " +
-          "WordPress 6.4+ saves a revision first; undo with wp_restore_template_part_revision.",
+          "Send the complete block markup, starting from wp_get_template_part; blank content is refused. " +
+          "A local copy of the current content is always saved first (undo with wp_restore_template_part_snapshot). " +
+          "WordPress 6.4+ revisions only exist after a part's first edit, so do not rely on them for the first change.",
         inputSchema: {
           type: "object",
           properties: { id: idProp, content: { type: "string", description: "The full new block markup." } },
           required: ["id", "content"],
         },
         handler: this.handleUpdateTemplatePart.bind(this),
+      },
+      {
+        name: "wp_restore_template_part_snapshot",
+        description:
+          "Puts a template part back to the content saved in a local snapshot (shown after every wp_update_template_part). " +
+          "The current content is snapshotted first, so this can be undone too. Snapshots live in backups/template-parts/<site>/.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            snapshot: { type: "string", description: "Snapshot file name from a previous template part update." },
+          },
+          required: ["snapshot"],
+        },
+        handler: this.handleRestoreTemplatePartSnapshot.bind(this),
       },
       {
         name: "wp_get_template_part_revisions",
@@ -156,13 +196,59 @@ export class TemplatePartTools {
           "Unsafe content (script tag, javascript: URL, or event handler). Do not remove existing scripts or embeds to get past this; ask the user to make the edit in WP admin.",
         );
       }
-      const part = await client.post<TemplatePart>(`template-parts/${templatePartPath(id)}`, { content });
+      if (!content.trim()) throw invalid("Refusing to blank a template part: the new content is empty.");
+      const path = templatePartPath(id);
+      // Save what is there now before touching it. A part still served from a theme file has no
+      // revision to fall back on after this edit, and if the copy cannot be saved nothing is changed.
+      const current = await client.get<TemplatePart>(`template-parts/${path}?context=edit`);
+      if (current.content?.raw === undefined) {
+        throw new WordPressAPIError(
+          "WordPress did not return the current raw content, so it cannot be saved before the edit. The account needs edit_theme_options.",
+          403,
+          "INSUFFICIENT_PERMISSIONS",
+        );
+      }
+      const saved = await writeTemplatePartSnapshot(client, id, current.content.raw);
+      const part = await client.post<TemplatePart>(`template-parts/${path}`, { content });
       return (
         `✅ Template part ${part.id} updated. It is live on the whole site now.\n` +
-        `- Undo: wp_get_template_part_revisions, then wp_restore_template_part_revision (WordPress 6.4+).`
+        `- Original content saved first: ${saved.file} (undo with wp_restore_template_part_snapshot)\n` +
+        `- WordPress revisions (WordPress 6.4+) only exist after a part's first edit; the local copy is always saved.`
       );
     } catch (_error) {
       themeRestError("Failed to update template part", _error, "template-parts");
+    }
+  }
+
+  public async handleRestoreTemplatePartSnapshot(
+    client: WordPressClient,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const { snapshot } = toolParams<{ snapshot: string }>(params);
+    try {
+      const file = await resolveTemplatePartSnapshotPath(client, snapshot);
+      const data = await readTemplatePartSnapshot(file, client, isTemplatePartId);
+      if (!data.content.trim()) throw invalid("Refusing to blank a template part: the snapshot content is empty.");
+      if (isUnsafeWordPressContent(data.content)) {
+        throw invalid(
+          "Snapshot contains unsafe content (script tag, javascript: URL, or event handler). Restore it from WP admin instead.",
+        );
+      }
+      const path = templatePartPath(data.part_id);
+      // Snapshot what is live now first, so the restore can itself be undone.
+      const current = await client.get<TemplatePart>(`template-parts/${path}?context=edit`);
+      if (current.content?.raw === undefined) {
+        throw new WordPressAPIError(
+          "WordPress did not return the current raw content. The account needs edit_theme_options.",
+          403,
+          "INSUFFICIENT_PERMISSIONS",
+        );
+      }
+      const before = await writeTemplatePartSnapshot(client, data.part_id, current.content.raw);
+      await client.post<TemplatePart>(`template-parts/${path}`, { content: data.content });
+      return `✅ Template part ${data.part_id} restored from ${snapshot}.\nThe version you replaced is saved as ${before.file}.`;
+    } catch (_error) {
+      themeRestError("Failed to restore template part snapshot", _error, "template-parts");
     }
   }
 

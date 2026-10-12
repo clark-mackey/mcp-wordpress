@@ -41,10 +41,19 @@ function run(scenario) {
     class WP_User { public function __construct(public $ID, public $user_login) {} }
     if (isset($s['constant'])) define('MCP_WP_THEME_ACCESS_LOGIN', $s['constant']);
     include $argv[2];
-    if ($s['authed']) do_action('application_password_did_authenticate', new WP_User($s['authed']['id'], $s['authed']['login']), []);
+    // Each request: core resolves the user (determine_current_user), and an Application Password
+    // login additionally fires application_password_did_authenticate. Several requests in one
+    // process mimic a long-lived worker that keeps PHP statics between requests.
+    $requests = $s['requests'] ?? [['authed' => $s['authed']]];
     $user = new WP_User($s['id'], $s['login']);
     $base = ['edit_posts' => true, 'edit_pages' => true];
-    echo json_encode(apply_filters('user_has_cap', $base, $s['checks'], [$s['checks'][0], $s['id']], $user));
+    $out = [];
+    foreach ($requests as $r) {
+      apply_filters('determine_current_user', $s['id']);
+      if ($r['authed']) do_action('application_password_did_authenticate', new WP_User($r['authed']['id'], $r['authed']['login']), []);
+      $out[] = apply_filters('user_has_cap', $base, $s['checks'], [$s['checks'][0], $s['id']], $user);
+    }
+    echo json_encode(isset($s['requests']) ? $out : $out[0]);
   `;
   return JSON.parse(execFileSync("php", ["-r", script, JSON.stringify(scenario), plugin], { encoding: "utf8" }));
 }
@@ -72,6 +81,17 @@ describe.skipIf(!hasPhp())("mcp-wordpress-theme-access mu-plugin", () => {
 
   it("does not let a different account with the same login text but another ID inherit the flag", () => {
     expect(run({ login: "ai-editor", id: 9, authed: ai, checks: ["edit_theme_options"] })).toEqual(base);
+  });
+
+  it("does not carry the flag into a later cookie request in a long-lived worker", () => {
+    const [appRequest, cookieRequest, appAgain] = run({
+      ...ai,
+      checks: ["edit_theme_options"],
+      requests: [{ authed: ai }, { authed: null }, { authed: ai }],
+    });
+    expect(appRequest).toEqual({ ...base, edit_theme_options: true });
+    expect(cookieRequest).toEqual(base);
+    expect(appAgain).toEqual({ ...base, edit_theme_options: true });
   });
 
   it("leaves every other capability alone", () => {

@@ -1,10 +1,8 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { WordPressClient } from "@/client/api.js";
 import { WordPressAPIError } from "@/types/client.js";
 import { getErrorMessage } from "@/utils/error.js";
+import { assertSameSite, backupRoot, resolveSnapshotFile, siteKey, writeSnapshotFile } from "./localSnapshots.js";
 
 /**
  * Local undo for widget areas (footer and sidebar widgets). WordPress keeps no revisions of
@@ -45,23 +43,15 @@ export function assertWidgetId(id: unknown, what = "widget"): string {
 
 export const enc = (id: string): string => encodeURIComponent(id);
 
-/** Repo-root backups folder (dist/tools and src/tools both sit two levels below the root). MCP_WP_WIDGET_BACKUP_DIR overrides it, mainly for tests. */
-export function widgetBackupRoot(): string {
-  return (
-    process.env.MCP_WP_WIDGET_BACKUP_DIR ||
-    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "backups", "widgets")
-  );
-}
-
-/** Folder name per site: host plus a short hash of the full URL, so two sites on one host (or http/https, paths) never share one. */
-export function siteKey(client: WordPressClient): string {
-  const url = client.getSiteUrl();
-  const host = new URL(url).host.toLowerCase().replace(/[^a-z0-9.-]/g, "_");
-  return `${host}-${createHash("sha256").update(url).digest("hex").slice(0, 8)}`;
-}
+export const widgetBackupRoot = (): string => backupRoot("widgets", "MCP_WP_WIDGET_BACKUP_DIR");
+export { siteKey };
 
 export async function fetchWidgets(client: WordPressClient, sidebarId: string): Promise<WidgetRecord[]> {
-  return client.get<WidgetRecord[]>(`widgets?sidebar=${enc(sidebarId)}&per_page=100&context=edit`);
+  const widgets = await client.get<WidgetRecord[]>(`widgets?sidebar=${enc(sidebarId)}&per_page=100&context=edit`);
+  // A full page may be cut off; a truncated snapshot would make restore delete the widgets it never saw.
+  if (widgets.length >= 100)
+    throw new Error(`Widget area ${sidebarId} has 100 or more widgets, more than a snapshot can safely hold.`);
+  return widgets;
 }
 
 export async function writeWidgetSnapshot(
@@ -79,47 +69,11 @@ export async function writeWidgetSnapshot(
     sidebar,
     widgets,
   };
-  const dir = join(widgetBackupRoot(), siteKey(client));
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  const stamp = takenAt.replace(/:/g, "-");
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const file = `${sidebarId}-${stamp}${attempt ? `-${attempt}` : ""}.json`;
-    const path = join(dir, file);
-    try {
-      // "wx": never overwrite an existing snapshot.
-      await writeFile(path, JSON.stringify(snapshot, null, 2), { mode: 0o600, flag: "wx" });
-      return { file, path };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-  }
-  throw new Error("Could not pick a free snapshot file name.");
+  return writeSnapshotFile(client, widgetBackupRoot(), sidebarId, takenAt, snapshot);
 }
 
-/** Accepts a file name (this site's folder) or a path inside backups/widgets; refuses traversal, symlinks out, other sites. */
-export async function resolveWidgetSnapshotPath(client: WordPressClient, input: string): Promise<string> {
-  const refuse = (why: string) => new WordPressAPIError(`Invalid snapshot: ${why}`, 400, "INVALID_PARAMETER");
-  const raw = input.trim();
-  if (!raw || raw.includes("\0")) throw refuse("give a snapshot file name.");
-  if (raw.split(/[\\/]/).includes("..")) throw refuse("paths with '..' are not allowed.");
-  if (!raw.toLowerCase().endsWith(".json")) throw refuse("snapshot files end in .json.");
-
-  const root = widgetBackupRoot();
-  const key = siteKey(client);
-  const bare = !/[\\/]/.test(raw);
-  const candidate = bare ? join(root, key, raw) : isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
-  let realRoot: string;
-  let real: string;
-  try {
-    realRoot = await realpath(root);
-    real = await realpath(candidate);
-  } catch {
-    throw refuse(`no snapshot file found at ${candidate}.`);
-  }
-  if (!real.startsWith(realRoot + sep)) throw refuse("the file must be inside the backups/widgets folder.");
-  if (dirname(real) !== join(realRoot, key)) throw refuse("that snapshot belongs to a different site.");
-  return real;
-}
+export const resolveWidgetSnapshotPath = (client: WordPressClient, input: string): Promise<string> =>
+  resolveSnapshotFile(client, widgetBackupRoot(), input, "widgets");
 
 export async function readWidgetSnapshot(path: string, client: WordPressClient): Promise<WidgetSnapshot> {
   let data: WidgetSnapshot;
@@ -141,13 +95,7 @@ export async function readWidgetSnapshot(path: string, client: WordPressClient):
     data.widgets.every((w) => typeof w?.id === "string" && ID_PATTERN.test(w.id));
   if (!valid)
     throw new WordPressAPIError("Snapshot file does not look like a widget snapshot.", 400, "INVALID_PARAMETER");
-  if (data.site_url !== client.getSiteUrl()) {
-    throw new WordPressAPIError(
-      `This snapshot was taken on ${data.site_url}, not ${client.getSiteUrl()}. Nothing was changed.`,
-      400,
-      "INVALID_PARAMETER",
-    );
-  }
+  assertSameSite(data.site_url, client);
   return data;
 }
 

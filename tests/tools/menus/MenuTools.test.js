@@ -3,6 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MenuTools } from "@/tools/menus.js";
+import { siteKey } from "@/tools/localSnapshots.js";
 import { WordPressAPIError } from "@/types/client.js";
 
 const menuItem = (id, title, over = {}) => ({
@@ -22,7 +23,7 @@ describe("MenuTools", () => {
   let tools;
   let client;
   let dir;
-  const snapshots = () => readdirSync(join(dir, "test-site.com"));
+  const snapshots = () => readdirSync(join(dir, siteKey(client)));
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "menu-tools-"));
@@ -71,7 +72,9 @@ describe("MenuTools", () => {
 
   it("shows a menu as a tree with parent, order and type", async () => {
     const result = await tools.handleGetMenu(client, { id: 5 });
-    expect(client.get).toHaveBeenCalledWith("menu-items?menus=5&per_page=100&page=1&context=edit");
+    expect(client.get).toHaveBeenCalledWith(
+      "menu-items?menus=5&per_page=100&page=1&status=publish,draft,pending,private&context=edit",
+    );
     expect(result).toContain("Menu 5: Main");
     expect(result.indexOf("ID 1:")).toBeLessThan(result.indexOf("ID 2:"));
     expect(result).toMatch(/ {2}- ID 2: \*\*Child\*\*/);
@@ -116,6 +119,16 @@ describe("MenuTools", () => {
       });
       await tools.handleCreateMenuItem(client, { menu_id: 5, title: "News", object: "category", object_id: 3 });
       expect(client.post.mock.calls[1][1]).toMatchObject({ type: "taxonomy", object: "category" });
+    });
+
+    it("rejects a menu_id that is not a positive integer", async () => {
+      await expect(
+        tools.handleCreateMenuItem(client, { menu_id: "5", title: "x", url: "https://a.com" }),
+      ).rejects.toThrow();
+      await expect(
+        tools.handleCreateMenuItem(client, { menu_id: -1, title: "x", url: "https://a.com" }),
+      ).rejects.toThrow();
+      expect(client.post).not.toHaveBeenCalled();
     });
 
     it("refuses without a target, and refuses unsafe links, writing nothing", async () => {
@@ -191,6 +204,22 @@ describe("MenuTools", () => {
       expect(snapshots()).toHaveLength(2); // the restore snapshotted the pre-restore state too
     });
 
+    it("reports skipped deletes in plain words when a step failed", async () => {
+      await tools.handleDeleteMenuItem(client, { id: 1 });
+      const file = snapshots()[0];
+      client.get.mockImplementation(async (endpoint) => {
+        if (endpoint.startsWith("menus/5")) return { id: 5 };
+        if (endpoint.startsWith("menu-items?menus=5")) return [menuItem(9, "Added", { menu_order: 9 })];
+        throw new Error(endpoint);
+      });
+      client.post.mockRejectedValue(new Error("boom"));
+      const result = await tools.handleRestoreMenuSnapshot(client, { snapshot: file });
+      expect(result).toContain("partly restored");
+      expect(result).toContain('Skipped deleting "Added" (item 9)');
+      expect(result).toContain("because earlier steps failed");
+      expect(client.delete).toHaveBeenCalledTimes(1); // only the original delete, none during restore
+    });
+
     it("rejects path traversal before touching WordPress", async () => {
       const outsideDir = join(dir, "..", "x.json");
       await expect(tools.handleRestoreMenuSnapshot(client, { snapshot: "../x.json" })).rejects.toThrow(
@@ -204,8 +233,8 @@ describe("MenuTools", () => {
     });
 
     it("rejects a snapshot file that is not valid", async () => {
-      mkdirSync(join(dir, "test-site.com"), { recursive: true });
-      writeFileSync(join(dir, "test-site.com", "5-bad.json"), "{}");
+      mkdirSync(join(dir, siteKey(client)), { recursive: true });
+      writeFileSync(join(dir, siteKey(client), "5-bad.json"), "{}");
       await expect(tools.handleRestoreMenuSnapshot(client, { snapshot: "5-bad.json" })).rejects.toThrow(
         /does not look like/,
       );

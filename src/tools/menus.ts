@@ -159,7 +159,7 @@ export class MenuTools {
       {
         name: "wp_restore_menu_snapshot",
         description:
-          "Puts a menu back the way a saved snapshot had it: restores titles, links, parents and order, recreates deleted items, and deletes items added since. " +
+          "Puts a menu back the way a saved snapshot had it: restores titles, links, parents and order, recreates deleted items, and deletes items added since (skipped if any step fails). " +
           "The menu's current state is snapshotted first. Snapshot file names are shown after every menu change; they live in backups/menus/<site>/.",
         inputSchema: {
           type: "object",
@@ -212,9 +212,10 @@ export class MenuTools {
   }
 
   public async handleCreateMenuItem(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
-    const { menu_id, title, url, type, object, object_id, parent, menu_order } = toolParams<
+    const { title, url, type, object, object_id, parent, menu_order } = toolParams<
       MenuItemInput & { menu_id: number; title: string }
     >(params);
+    const menu_id = parseId({ id: params.menu_id });
     try {
       assertSafeUrl(url);
       if (!url && !(object && object_id)) {
@@ -240,9 +241,8 @@ export class MenuTools {
   }
 
   public async handleUpdateMenuItem(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
-    const { id, title, url, object, object_id, parent, menu_order } = toolParams<MenuItemInput & { id: number }>(
-      params,
-    );
+    const { title, url, object, object_id, parent, menu_order } = toolParams<MenuItemInput & { id: number }>(params);
+    const id = parseId(params);
     try {
       assertSafeUrl(url);
       const body: Record<string, unknown> = {};
@@ -277,7 +277,7 @@ export class MenuTools {
     const { snapshot } = toolParams<{ snapshot: string }>(params);
     try {
       const path = await resolveSnapshotPath(client, snapshot);
-      const data = await readMenuSnapshot(path);
+      const data = await readMenuSnapshot(path, client);
       const report = await restoreMenuSnapshot(client, data);
       const lines = [
         report.failed.length
@@ -288,6 +288,11 @@ export class MenuTools {
           : "- Nothing needed changing; the menu already matched.",
       ];
       if (report.failed.length) lines.push("Problems:", ...report.failed.map((f) => `- ${f}`));
+      if (report.skippedDeletes.length) {
+        lines.push(
+          `Skipped deleting ${report.skippedDeletes.join(", ")} (added after the snapshot) because earlier steps failed.`,
+        );
+      }
       lines.push(`The menu as it was before this restore is saved as ${report.backup}.`);
       return lines.join("\n");
     } catch (_error) {

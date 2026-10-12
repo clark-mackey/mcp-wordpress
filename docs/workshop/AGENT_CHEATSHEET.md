@@ -5,7 +5,7 @@ The person is an agency owner, experienced with Claude Code and GitHub, not nece
 person: `INSTALL.md`. This file is for you.
 
 What is being installed: `github.com/clark-mackey/mcp-wordpress`, an MCP server (Node, stdio) that lets Claude Code edit
-a WordPress site through the WP REST API. It exposes 105 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
+a WordPress site through the WP REST API. It exposes 106 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
 (MIT).
 
 ---
@@ -145,7 +145,7 @@ that is normal). Then it does six things and prints each result:
    registration, so a failure never leaves a registered server without its blocked tools
 5. Runs `claude mcp add wp --scope user -- node <path>/bin/mcp-wordpress.js`. It replaces only its own earlier entry
 6. Starts the server the way Claude Code will (ignoring `WORDPRESS_*` and `ALLOW_*` variables set in the shell), lists
-   its tools (expect 105), and calls `wp_get_current_user` to confirm it can reach WordPress
+   its tools (expect 106), and calls `wp_get_current_user` to confirm it can reach WordPress
 
 Flags: `--name <server>` (default `wp`; the deny rules use the same name), `--dry-run` (changes nothing),
 `--allow-admin` (do not suggest this). `--dry-run` needs the `--` separator: `npm run workshop -- --dry-run`. Unknown
@@ -237,7 +237,7 @@ A restore keeps the page's status. Restoring a published page changes the live p
 
 ## Header, footer and menus (optional)
 
-Only set this up if the person asks. It adds 17 tools (menus, template parts, widgets). Nothing here changes the Step 3
+Only set this up if the person asks. It adds 18 tools (menus, template parts, widgets). Nothing here changes the Step 3
 setup except two more deny rules, `wp_delete_menu_item` and `wp_delete_widget`, which `npm run workshop` already adds.
 
 - **Works**: menus on any theme. Header and footer only on block themes (template parts, `wp_list_template_parts`).
@@ -253,10 +253,14 @@ setup except two more deny rules, `wp_delete_menu_item` and `wp_delete_widget`, 
   the file if it is not `ai-editor`). It grants that one capability to that one user, only for app-password requests. A
   403 mentioning `edit_theme_options` means it is missing.
 - **Undo**: menus have no revisions. Every menu-item change first writes a snapshot to
-  `backups/menus/<site-host>/<menuId>-<time>.json` (gitignored, mode 0600), and `wp_restore_menu_snapshot` takes the
-  file name and reverts titles, links, parents and order, recreates deleted items and removes added ones. Template parts
-  use WordPress 6.4+ revisions: `wp_get_template_part_revisions`, `wp_restore_template_part_revision`. Older WordPress:
-  no undo, so get a site backup first.
+  `backups/menus/<host>-<hash>/<menuId>-<time>.json` (gitignored, mode 0600, bound to the full site URL), and
+  `wp_restore_menu_snapshot` takes the file name and reverts titles, links, targets, parents and order, recreates
+  deleted items and removes items added after the snapshot (skipped if any step failed). Template parts: every update
+  first saves the current content to `backups/template-parts/<host>-<hash>/` (`wp_restore_template_part_snapshot`).
+  WordPress 6.4+ revisions (`wp_get_template_part_revisions`, `wp_restore_template_part_revision`) exist only after a
+  part's first edit, so the local copy is the real undo for the first change.
+- The theme-access permission also lets that app password edit widgets, global styles and templates through the REST
+  API.
 - Header and footer edits are site-wide and live immediately. Tell the person before making one.
 
 ---

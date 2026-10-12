@@ -232,6 +232,12 @@ describe("WidgetTools", () => {
       expect(siteKey(makeClient([], "http://test-site.com"))).not.toBe(siteKey(client));
     });
 
+    it("throws instead of saving a truncated snapshot when a full page comes back", async () => {
+      const many = makeClient(Array.from({ length: 100 }, (_, i) => block(i + 1, "x")));
+      await expect(writeWidgetSnapshot(many, "footer-1")).rejects.toThrow(/more than a snapshot can safely hold/);
+      expect(() => files(many)).toThrow();
+    });
+
     it("never overwrites an existing file", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-10-11T12:00:00.000Z"));

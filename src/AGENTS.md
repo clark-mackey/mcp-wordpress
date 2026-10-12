@@ -7,11 +7,10 @@ subsystems.
 
 ## Ownership
 
-Owns everything under `src/` not covered by a child AGENTS.md: entry points (`index.ts`, `server.ts`,
-`dxt-entry.ts`), `src/server/` (MCP server wiring + `ToolRegistry.ts`), `src/utils/` (logger, error types,
-`CircuitBreaker`, validation helpers), `src/types/` (shared TS types), `src/docs/` (README/docs auto-generation).
-Domain-specific contracts for tools, the WordPress client, caching, security, performance, and config live in the
-child docs indexed below.
+Owns everything under `src/` not covered by a child AGENTS.md: entry points (`index.ts`, `server.ts`, `dxt-entry.ts`),
+`src/server/` (MCP server wiring + `ToolRegistry.ts`), `src/utils/` (logger, error types, `CircuitBreaker`, validation
+helpers), `src/types/` (shared TS types), `src/docs/` (README/docs auto-generation). Domain-specific contracts for
+tools, the WordPress client, caching, security, performance, and config live in the child docs indexed below.
 
 ## Local Contracts
 

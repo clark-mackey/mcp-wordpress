@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The 105 MCP tools the server exposes, grouped by WordPress resource.
+The 106 MCP tools the server exposes, grouped by WordPress resource.
 
 ## Ownership
 
@@ -29,7 +29,7 @@ auth-error/`EnhancedError` handling. A new tool must satisfy this contract to be
 `cache.ts`, `site.ts`, `auth.ts`) are single files. `posts.ts` and `performance.ts` are `@deprecated` re-export shims —
 edit the subdirectory versions, not the shims.
 
-**Category map** (105 tools / 18 categories — verified against source):
+**Category map** (106 tools / 18 categories — verified against source):
 
 | Category      | File(s)                                     | Count |
 | ------------- | ------------------------------------------- | ----- |
@@ -48,7 +48,7 @@ edit the subdirectory versions, not the shims.
 | Redirection   | `redirection/RedirectionToolDefinitions.ts` | 6     |
 | Revisions     | `revisions.ts` (restore only)               | 1     |
 | Menus         | `menus.ts` + `menuSnapshots.ts`             | 6     |
-| TemplateParts | `templateParts.ts`                          | 5     |
+| TemplateParts | `templateParts.ts`                          | 6     |
 | Widgets       | `widgets.ts` + `widgetSnapshots.ts`         | 6     |
 | System        | `version.ts` (wrapped by `system.ts`)       | 1     |
 

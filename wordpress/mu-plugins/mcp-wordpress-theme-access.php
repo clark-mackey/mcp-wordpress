@@ -27,7 +27,9 @@ if ( ! defined( 'MCP_WP_THEME_ACCESS_LOGIN' ) ) {
 
 /**
  * Remembers which user ID authenticated with an Application Password during this request.
- * PHP starts every request with a clean slate, so the flag never carries over to another request.
+ * Normal PHP starts every request clean. Long-lived workers (FrankenPHP worker mode, RoadRunner,
+ * Swoole) can keep this static between requests, so it is also reset at the start of every
+ * authentication pass (see the determine_current_user filter below), not just trusted to expire.
  *
  * @param int|null $set A user ID to record, or null to just read.
  * @return int The recorded user ID, or 0.
@@ -39,6 +41,18 @@ function mcp_wp_theme_access_app_user( $set = null ) {
 	}
 	return $user_id;
 }
+
+// Runs at priority 1, before core's Application Password check (priority 20): forget any earlier
+// request's flag, and pass the user ID through untouched. If this request then authenticates with an
+// Application Password the action below sets the flag again; a cookie login never does.
+add_filter(
+	'determine_current_user',
+	static function ( $user_id ) {
+		mcp_wp_theme_access_app_user( 0 );
+		return $user_id;
+	},
+	1
+);
 
 // Fires only when WordPress has just checked a valid Application Password.
 add_action(
