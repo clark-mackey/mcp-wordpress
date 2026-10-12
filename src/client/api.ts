@@ -67,7 +67,7 @@ import { CommentsOperations } from "./operations/comments.js";
 import { TaxonomiesOperations } from "./operations/taxonomies.js";
 import { SiteOperations } from "./operations/site.js";
 
-/** Header the companion mu-plugin reads when the host strips Authorization. Keep in step with bin/workshop.js. */
+/** Header the companion mu-plugin reads when the host strips Authorization. Keep in step with bin/connect.js. */
 export const AUTH_FALLBACK_HEADER = "X-MCP-WP-Auth";
 
 /**
@@ -658,7 +658,7 @@ export class WordPressClient implements IWordPressClient {
         if (blockRedirects && response.status >= 300 && response.status < 400 && response.status !== 304) {
           throw new WordPressAPIError(
             `The site redirected to ${response.headers.get("location") ?? "another address"}. ` +
-              "Run npm run workshop again with that final address as the Site URL.",
+              "Run npm run connect again with that final address as the Site URL.",
             response.status,
             "REDIRECT_BLOCKED",
           );

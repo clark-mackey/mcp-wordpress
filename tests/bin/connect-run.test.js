@@ -23,20 +23,20 @@ import {
   parseArgs,
   run,
   writeFileAtomic,
-} from "../../bin/workshop.js";
+} from "../../bin/connect.js";
 
 const PASSWORD = "abcd efgh ijkl mnop qrst uvwx";
 const EDITOR = { id: 7, name: "AI Editor", roles: ["editor"] };
 
-describe("workshop run() flow", () => {
+describe("connect run() flow", () => {
   let root;
   let home;
   let calls;
   let logs;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "workshop-root-"));
-    home = mkdtempSync(join(tmpdir(), "workshop-home-"));
+    root = mkdtempSync(join(tmpdir(), "connect-root-"));
+    home = mkdtempSync(join(tmpdir(), "connect-home-"));
     mkdirSync(join(root, "dist"));
     writeFileSync(join(root, "dist", "index.js"), "");
     mkdirSync(join(home, ".claude"));
@@ -167,7 +167,7 @@ describe("workshop run() flow", () => {
   });
 
   it("keeps other settings and an owner-only mode, follows a symlink, and backs the old file up owner-only", async () => {
-    const dotfiles = mkdtempSync(join(tmpdir(), "workshop-dotfiles-"));
+    const dotfiles = mkdtempSync(join(tmpdir(), "connect-dotfiles-"));
     const target = join(dotfiles, "settings.json");
     writeFileSync(target, JSON.stringify({ model: "keep-me", env: { SECRET: "x" } }));
     chmodSync(target, 0o600);
@@ -345,7 +345,7 @@ describe("workshop run() flow", () => {
   describe("dry run", () => {
     it.each([
       ["--dry-run flag", ["--dry-run"], {}],
-      ["npm_config_dry_run (npm run workshop --dry-run without the -- separator)", [], { npm_config_dry_run: "true" }],
+      ["npm_config_dry_run (npm run connect --dry-run without the -- separator)", [], { npm_config_dry_run: "true" }],
     ])("changes nothing: %s", async (_label, argv, env) => {
       rmSync(join(root, "dist"), { recursive: true }); // not built yet: a dry run must not build
 
@@ -373,7 +373,7 @@ describe("workshop run() flow", () => {
   });
 });
 
-describe("workshop helpers", () => {
+describe("connect helpers", () => {
   it("rejects unknown options instead of ignoring a typo", () => {
     expect(() => parseArgs(["--dryrun"], {})).toThrow(/Unknown option/);
     expect(() => parseArgs(["--name"], {})).toThrow();
@@ -396,7 +396,7 @@ describe("workshop helpers", () => {
   });
 
   it("writes atomically: no temp file is left behind and the mode is kept", () => {
-    const dir = mkdtempSync(join(tmpdir(), "workshop-atomic-"));
+    const dir = mkdtempSync(join(tmpdir(), "connect-atomic-"));
     const file = join(dir, "f.json");
     writeFileSync(file, "old", { mode: 0o640 });
     chmodSync(file, 0o640);

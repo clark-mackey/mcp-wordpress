@@ -226,5 +226,5 @@ evaluations/reports/
 evaluations/config/existing-sites-eval.yaml
 .history/
 
-# Backups written by `npm run workshop` (contain the old app password)
+# Backups written by `npm run connect` (contain the old app password)
 .env.bak-*

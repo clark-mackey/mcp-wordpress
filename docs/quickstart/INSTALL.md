@@ -68,7 +68,7 @@ Run this yourself in your own terminal window, inside the `mcp-wordpress` folder
 command runner cannot take the hidden password, and the password should never pass through chat.
 
 ```bash
-npm run workshop
+npm run connect
 ```
 
 It asks for three things: your site URL, the username (press Enter for `ai-editor`), and the application password (paste
@@ -130,7 +130,7 @@ Two things to know while you work:
 | `/mcp` shows `wp` failed                       | In the `mcp-wordpress` folder run `npm run status` and read the first error                                                                                                                                                                                                                                                                                                        |
 | Claude can't see the tools                     | Quit and reopen Claude Code                                                                                                                                                                                                                                                                                                                                                        |
 
-Run `npm run workshop -- --dry-run` (the `--` matters) to see what it would do without changing anything. Run it again
+Run `npm run connect -- --dry-run` (the `--` matters) to see what it would do without changing anything. Run it again
 any time: it updates the login in `.env` (keeping your other settings there), does not duplicate rules, and replaces its
 own earlier `wp` entry. It will not overwrite a different server that is already named `wp`: use `--name <other-name>`
 instead. Old copies of `.env` and `settings.json` are kept next to the originals as `.bak-<time>` (owner-only; delete
@@ -148,5 +148,5 @@ claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"
 On Windows, replace `"$(pwd)/bin/mcp-wordpress.js"` with `"%cd%\bin\mcp-wordpress.js"` (Command Prompt) or
 `"$PWD\bin\mcp-wordpress.js"` (PowerShell).
 
-Then in Claude Code, ask it to merge the 13 `mcp__wp__...` deny rules listed in `bin/workshop.js` (`DENIED_TOOLS`) into
+Then in Claude Code, ask it to merge the 13 `mcp__wp__...` deny rules listed in `bin/connect.js` (`DENIED_TOOLS`) into
 the `permissions.deny` list in `~/.claude/settings.json`, keeping everything already there.

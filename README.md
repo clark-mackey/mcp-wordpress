@@ -100,10 +100,11 @@ Response: "✅ Authentication successful! Connected to: Your Site Name"
 
 ## 🧰 First-Time Setup Guide
 
-New to this? [docs/workshop/INSTALL.md](docs/workshop/INSTALL.md) is a three-step walkthrough (make a WP key, build the
-server, run `npm run workshop`). It tests your login, refuses an Administrator account, registers the server with Claude
-Code, and blocks the delete and user tools. [docs/workshop/INSTALL_PROMPT.md](docs/workshop/INSTALL_PROMPT.md) is a
-prompt that lets Claude Code guide you through it.
+New to this? [docs/quickstart/INSTALL.md](docs/quickstart/INSTALL.md) is a three-step walkthrough (make a WP key, build
+the server, run `npm run connect`). It tests your login, refuses an Administrator account, registers the server with
+Claude Code, and blocks the delete and user tools.
+[docs/quickstart/INSTALL_PROMPT.md](docs/quickstart/INSTALL_PROMPT.md) is a prompt that lets Claude Code guide you
+through it.
 
 ## ⚡ Installation Options
 

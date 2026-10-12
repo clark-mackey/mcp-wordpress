@@ -39,6 +39,7 @@
     "build:watch": "tsc --watch",
     "check:ci": "npm run typecheck && npm run lint && npm run test:coverage",
     "check:ignore": "node scripts/sync-ignore-files.js",
+    "connect": "node bin/connect.js",
     "dev": "npm run build && DEBUG=true node dist/index.js",
     "docker:build": "docker build -t docdyhr/mcp-wordpress:latest .",
     "docker:publish": "./scripts/manual-docker-publish.sh",
@@ -106,8 +107,7 @@
     "test:vscode": "npm run build && node dist/scripts/test-vscode-setup.js",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify-claude": "node scripts/verify-claude-integration.js",
-    "workshop": "node bin/workshop.js"
+    "verify-claude": "node scripts/verify-claude-integration.js"
   },
   "lint-staged": {
     "*.{ts,js}": [

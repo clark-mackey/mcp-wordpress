@@ -13,9 +13,9 @@ a WordPress site through the WP REST API. It exposes 88 `wp_*` tools. It is a pu
 ## Your rules (read first)
 
 1. **Never ask the person to paste the app password into the chat.** Anything typed in chat is saved in the session
-   transcript. The password goes only into the `npm run workshop` prompt, which hides it.
+   transcript. The password goes only into the `npm run connect` prompt, which hides it.
 2. **Never put the password in a command line or in `claude mcp add -e ...`.** That would write it in plain text to
-   `~/.claude.json` and shell history. `npm run workshop` writes it to `.env` instead.
+   `~/.claude.json` and shell history. `npm run connect` writes it to `.env` instead.
 3. **Never commit `.env`.** It is gitignored. Do not remove that.
 4. **Never use an Administrator account.** The WP user must have the **Editor** role.
 5. **Do not point this at a client's live site during setup.** Ask which site they chose. Recommend their own site or a
@@ -61,7 +61,7 @@ claude --version
 ```
 
 - Node below 22.14: stop. Have the person install the current LTS from nodejs.org, then open a new terminal.
-- Windows: Command Prompt, PowerShell and WSL all work with `npm run workshop`. Have them `cd %USERPROFILE%` (cmd) or
+- Windows: Command Prompt, PowerShell and WSL all work with `npm run connect`. Have them `cd %USERPROFILE%` (cmd) or
   `cd ~` (PowerShell) before cloning, so the repo is not created in `C:\WINDOWS\system32`. In cmd, right-click pastes.
 - Confirm the target site is HTTPS. WP only offers app passwords over HTTPS.
 
@@ -75,13 +75,13 @@ You cannot do this for them (it needs the WP admin login, which should not be sh
 2. Edit `ai-editor`, scroll to **Application Passwords**, name it `Claude Code`, click Add.
 3. Copy the password. WP shows it once. Spaces in it are fine.
 
-Do not test the password with curl. `npm run workshop` in Step 3 tests it and names the fix for each failure. A curl
+Do not test the password with curl. `npm run connect` in Step 3 tests it and names the fix for each failure. A curl
 command with the password in it lands in shell history, and its output tends to get pasted into chat.
 
 Ask the person to describe what they see after clicking Add. Expected (screenshot:
-`docs/workshop/images/app-password-created.png`): a green box reading "Your new password for **ai-editor** is:" followed
-by six groups of four characters, a Copy button, and "You will not be able to retrieve it." Treat anything else as a
-problem:
+`docs/quickstart/images/app-password-created.png`): a green box reading "Your new password for **ai-editor** is:"
+followed by six groups of four characters, a Copy button, and "You will not be able to retrieve it." Treat anything else
+as a problem:
 
 - no Application Passwords section, or a warning or error notice instead of the green box: HTTPS is missing or a
   security plugin or host disabled app passwords (see the failure map below)
@@ -128,7 +128,7 @@ without an error.
 terminal. Tell the person to open their own terminal window, `cd` into `mcp-wordpress`, and run:
 
 ```bash
-npm run workshop
+npm run connect
 ```
 
 It asks for the site URL, the username (Enter accepts `ai-editor`), and the app password (nothing shows as they paste;
@@ -148,7 +148,7 @@ that is normal). Then it does six things and prints each result:
    its tools (expect 88), and calls `wp_get_current_user` to confirm it can reach WordPress
 
 Flags: `--name <server>` (default `wp`; the deny rules use the same name), `--dry-run` (changes nothing),
-`--allow-admin` (do not suggest this). `--dry-run` needs the `--` separator: `npm run workshop -- --dry-run`. Unknown
+`--allow-admin` (do not suggest this). `--dry-run` needs the `--` separator: `npm run connect -- --dry-run`. Unknown
 options are rejected.
 
 What got stored:
@@ -238,7 +238,7 @@ A restore keeps the page's status. Restoring a published page changes the live p
 | Task                     | How                                                                                                                                                                                               |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Update the tool          | In the `mcp-wordpress` folder: `git pull`, `npm ci`, `npm run build`, restart Claude Code                                                                                                         |
-| Rotate the password      | WP: delete the old app password, create a new one. Re-run `npm run workshop`                                                                                                                      |
+| Rotate the password      | WP: delete the old app password, create a new one. Re-run `npm run connect`                                                                                                                       |
 | Remove access entirely   | Delete the app password in WP. `claude mcp remove wp`. Delete the `mcp-wordpress` folder (this removes `.env`)                                                                                    |
 | Second site              | Do not reuse `.env`. Use a separate clone, or the multi-site config in the repo docs, with a differently named server                                                                             |
 | Move to production sites | Before using on a client site: dedicated user, Editor role, one app password per machine, secret in a secrets manager rather than a plain `.env`, deny list in place, revisions on, daily backups |
