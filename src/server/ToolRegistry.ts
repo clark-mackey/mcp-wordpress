@@ -233,7 +233,7 @@ export class ToolRegistry {
               content: [
                 {
                   type: "text" as const,
-                  text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run workshop again, which detects this and names the fix.`,
+                  text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run connect again, which detects this and names the fix.`,
                 },
               ],
               isError: true,

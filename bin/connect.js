@@ -3,7 +3,7 @@
 // Guided setup for first-time users: checks the machine, tests the WP login, saves it to .env,
 // blocks the dangerous tools in Claude Code's deny list, registers the server, and starts it once.
 //
-//   npm run workshop -- [--name wp] [--dry-run] [--allow-admin]
+//   npm run connect -- [--name wp] [--dry-run] [--allow-admin]
 //
 // Every check that can fail runs before anything is written, and the deny list is written before the
 // server is registered, so a failure never leaves a registered server without its blocked tools.
@@ -398,7 +398,11 @@ export function probeServer({ rootDir = defaultRootDir, env = process.env, callT
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
-      params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "workshop-setup", version: "1" } },
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "mcp-wordpress-connect", version: "1" },
+      },
     });
   });
 }

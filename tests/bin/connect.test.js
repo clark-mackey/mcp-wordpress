@@ -15,7 +15,7 @@ import {
   loginFailureMessage,
   runCommand,
   USER_AGENT,
-} from "../../bin/workshop.js";
+} from "../../bin/connect.js";
 
 const srcTools = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "tools");
 
@@ -28,7 +28,7 @@ function sourceText(dir) {
     .join("\n");
 }
 
-describe("workshop setup helpers", () => {
+describe("connect setup helpers", () => {
   describe("DENIED_TOOLS", () => {
     it("names only tools that exist in src/tools, so a rename cannot silently unblock one", () => {
       const source = sourceText(srcTools);

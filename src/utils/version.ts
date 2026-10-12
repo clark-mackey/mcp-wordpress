@@ -317,7 +317,7 @@ export class VersionManager {
     const info = this.getVersion();
     const pkg = this.getPackageInfo();
     // "Mozilla/5.0 (compatible; ...)" is the usual form for a named client. Host bot filters often
-    // answer 403 to user agents that don't start this way. Keep in step with bin/workshop.js.
+    // answer 403 to user agents that don't start this way. Keep in step with bin/connect.js.
     return `Mozilla/5.0 (compatible; ${pkg.name}/${info.full}; +https://github.com/clark-mackey/mcp-wordpress)`;
   }
 

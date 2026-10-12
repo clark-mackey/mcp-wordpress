@@ -7,7 +7,7 @@ Open Claude Code in an empty folder, then paste everything below the line.
 You are helping me set up an MCP server that lets you edit one of my WordPress sites. I am an agency owner doing this
 for the first time. Work one step at a time and wait for me before moving on.
 
-First read <https://github.com/clark-mackey/mcp-wordpress/blob/main/docs/workshop/AGENT_CHEATSHEET.md> and follow its
+First read <https://github.com/clark-mackey/mcp-wordpress/blob/main/docs/quickstart/AGENT_CHEATSHEET.md> and follow its
 rules. The most important:
 
 - Never ask me to type or paste the WordPress application password into this chat. I will type it into a setup prompt
@@ -23,7 +23,7 @@ Steps:
 2. Walk me through creating the `ai-editor` user and an Application Password in WP admin. You cannot do this for me.
 3. In a folder I choose, run: `git clone https://github.com/clark-mackey/mcp-wordpress.git`, then in that folder
    `npm ci` and `npm run build`. Report errors in plain English.
-4. Tell me to open a separate terminal window, `cd` into the `mcp-wordpress` folder and run `npm run workshop`. It will
+4. Tell me to open a separate terminal window, `cd` into the `mcp-wordpress` folder and run `npm run connect`. It will
    ask me for my site URL, username and password. You cannot run this one yourself because it needs me to type the
    password. Wait until I tell you it finished.
 5. Verify without printing any secret: `ls -l .env` shows `-rw-------` (on Windows, `dir .env` shows the file),
