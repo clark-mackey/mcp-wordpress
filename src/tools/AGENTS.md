@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The 88 MCP tools the server exposes, grouped by WordPress resource.
+The 99 MCP tools the server exposes, grouped by WordPress resource.
 
 ## Ownership
 
@@ -29,25 +29,27 @@ auth-error/`EnhancedError` handling. A new tool must satisfy this contract to be
 `cache.ts`, `site.ts`, `auth.ts`) are single files. `posts.ts` and `performance.ts` are `@deprecated` re-export shims —
 edit the subdirectory versions, not the shims.
 
-**Category map** (88 tools / 15 categories — verified against source):
+**Category map** (99 tools / 17 categories — verified against source):
 
-| Category    | File(s)                                     | Count |
-| ----------- | ------------------------------------------- | ----- |
-| Posts       | `posts/PostToolDefinitions.ts`              | 6     |
-| Pages       | `pages.ts`                                  | 6     |
-| Media       | `media.ts`                                  | 5     |
-| Users       | `users.ts`                                  | 6     |
-| Comments    | `comments.ts`                               | 7     |
-| Taxonomies  | `taxonomies.ts`                             | 10    |
-| Site        | `site.ts` (settings/search)                 | 3     |
-| Auth        | `auth.ts` (3) + `site.ts` app-passwords (3) | 6     |
-| Cache       | `cache.ts`                                  | 4     |
-| Performance | `performance/PerformanceTools.ts`           | 6     |
-| SEO         | `seo/SEOToolDefinitions.ts`                 | 11    |
-| SEOPress    | `seopress/SEOPressToolDefinitions.ts`       | 10    |
-| Redirection | `redirection/RedirectionToolDefinitions.ts` | 6     |
-| Revisions   | `revisions.ts` (restore only)               | 1     |
-| System      | `version.ts` (wrapped by `system.ts`)       | 1     |
+| Category      | File(s)                                     | Count |
+| ------------- | ------------------------------------------- | ----- |
+| Posts         | `posts/PostToolDefinitions.ts`              | 6     |
+| Pages         | `pages.ts`                                  | 6     |
+| Media         | `media.ts`                                  | 5     |
+| Users         | `users.ts`                                  | 6     |
+| Comments      | `comments.ts`                               | 7     |
+| Taxonomies    | `taxonomies.ts`                             | 10    |
+| Site          | `site.ts` (settings/search)                 | 3     |
+| Auth          | `auth.ts` (3) + `site.ts` app-passwords (3) | 6     |
+| Cache         | `cache.ts`                                  | 4     |
+| Performance   | `performance/PerformanceTools.ts`           | 6     |
+| SEO           | `seo/SEOToolDefinitions.ts`                 | 11    |
+| SEOPress      | `seopress/SEOPressToolDefinitions.ts`       | 10    |
+| Redirection   | `redirection/RedirectionToolDefinitions.ts` | 6     |
+| Revisions     | `revisions.ts` (restore only)               | 1     |
+| Menus         | `menus.ts` + `menuSnapshots.ts`             | 6     |
+| TemplateParts | `templateParts.ts`                          | 5     |
+| System        | `version.ts` (wrapped by `system.ts`)       | 1     |
 
 **SEO engines** (`seo/`) — each subdirectory is one engine-per-concern, orchestrated by `seo/SEOTools.ts`:
 `analyzers/ContentAnalyzer.ts` (readability/keyword scoring), `auditors/SiteAuditor.ts` (site-wide audit),

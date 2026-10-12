@@ -228,3 +228,6 @@ evaluations/config/existing-sites-eval.yaml
 
 # Backups written by `npm run workshop` (contain the old app password)
 .env.bak-*
+
+# Local menu snapshots written before every menu change (see src/tools/menuSnapshots.ts)
+backups/

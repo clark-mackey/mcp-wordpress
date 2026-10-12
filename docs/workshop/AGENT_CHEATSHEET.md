@@ -5,7 +5,7 @@ The person is an agency owner, experienced with Claude Code and GitHub, not nece
 person: `INSTALL.md`. This file is for you.
 
 What is being installed: `github.com/clark-mackey/mcp-wordpress`, an MCP server (Node, stdio) that lets Claude Code edit
-a WordPress site through the WP REST API. It exposes 88 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
+a WordPress site through the WP REST API. It exposes 99 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
 (MIT).
 
 ---
@@ -140,12 +140,12 @@ that is normal). Then it does six things and prints each result:
    stops it
 3. Writes `.env` (mode 600) with the URL, username and password, keeping other keys already in it. Asks before replacing
    an existing `.env` and copies the old one to `.env.bak-<time>` (mode 600)
-4. Merges 13 deny rules into `~/.claude/settings.json`. It copies the old file to `settings.json.bak-<time>` first (mode
+4. Merges 14 deny rules into `~/.claude/settings.json`. It copies the old file to `settings.json.bak-<time>` first (mode
    600), keeps everything already there and the file's permissions, and follows a symlink. This happens **before**
    registration, so a failure never leaves a registered server without its blocked tools
 5. Runs `claude mcp add wp --scope user -- node <path>/bin/mcp-wordpress.js`. It replaces only its own earlier entry
 6. Starts the server the way Claude Code will (ignoring `WORDPRESS_*` and `ALLOW_*` variables set in the shell), lists
-   its tools (expect 88), and calls `wp_get_current_user` to confirm it can reach WordPress
+   its tools (expect 99), and calls `wp_get_current_user` to confirm it can reach WordPress
 
 Flags: `--name <server>` (default `wp`; the deny rules use the same name), `--dry-run` (changes nothing),
 `--allow-admin` (do not suggest this). `--dry-run` needs the `--` separator: `npm run workshop -- --dry-run`. Unknown
@@ -157,16 +157,17 @@ What got stored:
 - `~/.claude.json`: an entry named `wp` with the command and an empty `env`. No secret
 - `~/.claude/settings.json`: the deny rules, plus a `.bak-<time>` copy of the previous file
 
-The 13 blocked tools: `wp_delete_page`, `wp_delete_post`, `wp_delete_media`, `wp_delete_comment`, `wp_delete_category`,
+The 14 blocked tools: `wp_delete_page`, `wp_delete_post`, `wp_delete_media`, `wp_delete_comment`, `wp_delete_category`,
 `wp_delete_tag`, `wp_delete_user`, `wp_delete_application_password`, `wp_create_user`, `wp_update_user`,
-`wp_create_application_password`, `wp_switch_auth_method`, `wp_update_site_settings` (each as `mcp__wp__<tool>`).
+`wp_create_application_password`, `wp_switch_auth_method`, `wp_update_site_settings`, `wp_delete_menu_item` (each as
+`mcp__wp__<tool>`).
 
 After it finishes, verify **without printing the secret**:
 
 ```bash
 ls -l .env                                     # expect -rw------- (Windows: dir .env)
 grep -c "WORDPRESS_APP_PASSWORD" .env          # expect 1
-grep -c "mcp__wp__" ~/.claude/settings.json    # expect 13 or more
+grep -c "mcp__wp__" ~/.claude/settings.json    # expect 14 or more
 ```
 
 Do not `cat .env`. Then the person quits and reopens Claude Code and runs `/mcp`. Expect `wp` connected. Every tool not
@@ -194,7 +195,7 @@ Failure map for the script:
 
 If the script cannot run, the manual path is `npm run setup`, then
 `claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"` (Windows cmd: `"%cd%\bin\mcp-wordpress.js"`;
-PowerShell: `"$PWD\bin\mcp-wordpress.js"`), then merge the 13 deny rules by hand. Use the server name `wp`, or change
+PowerShell: `"$PWD\bin\mcp-wordpress.js"`), then merge the 14 deny rules by hand. Use the server name `wp`, or change
 every `mcp__wp__` prefix to match the name chosen.
 
 ---
@@ -226,10 +227,32 @@ the strongest to the weakest:
    Claude's mistakes, not against a leaked password.
 4. **Instructions** such as "draft first" in `CLAUDE.md`. Useful for workflow, but not a safety layer.
 5. **Revisions.** WP saves a revision on every page or post update. `wp_restore_revision` restores one, and the restore
-   is itself undoable. Revisions do **not** cover SEO meta, custom fields, deleted media, menus, widgets, or settings.
-   Revisions are an undo button, not a backup, so the person still needs daily backups.
+   is itself undoable. Revisions do **not** cover SEO meta, custom fields, deleted media, menus (local snapshots do, see
+   "Header, footer and menus"), widgets, or settings. Revisions are an undo button, not a backup, so the person still
+   needs daily backups.
 
 A restore keeps the page's status. Restoring a published page changes the live page immediately.
+
+---
+
+## Header, footer and menus (optional)
+
+Only set this up if the person asks. It adds 11 tools (menus and template parts). Nothing here changes the Step 3 setup
+except one more deny rule, `wp_delete_menu_item`, which `npm run workshop` already adds.
+
+- **Works**: menus on any theme. Header and footer only on block themes (template parts, `wp_list_template_parts`).
+- **Does not work**: classic theme PHP headers and footers, page builders, the Customizer. The tools say "classic theme"
+  in plain words; relay that and stop.
+- **Permission**: Editors lack `edit_theme_options`. Have the person copy
+  `wordpress/mu-plugins/mcp-wordpress-theme-access.php` into `wp-content/mu-plugins/` (set the login name at the top of
+  the file if it is not `ai-editor`). It grants that one capability to that one user, only for app-password requests. A
+  403 mentioning `edit_theme_options` means it is missing.
+- **Undo**: menus have no revisions. Every menu-item change first writes a snapshot to
+  `backups/menus/<site-host>/<menuId>-<time>.json` (gitignored, mode 0600), and `wp_restore_menu_snapshot` takes the
+  file name and reverts titles, links, parents and order, recreates deleted items and removes added ones. Template parts
+  use WordPress 6.4+ revisions: `wp_get_template_part_revisions`, `wp_restore_template_part_revision`. Older WordPress:
+  no undo, so get a site backup first.
+- Header and footer edits are site-wide and live immediately. Tell the person before making one.
 
 ---
 

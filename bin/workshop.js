@@ -76,6 +76,7 @@ export const DENIED_TOOLS = [
   "wp_create_application_password",
   "wp_switch_auth_method",
   "wp_update_site_settings",
+  "wp_delete_menu_item",
 ];
 
 /** A failure with a message written for the person running the script. */

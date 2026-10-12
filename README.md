@@ -48,7 +48,7 @@ Manage WordPress sites with natural language through AI tools like Claude Deskto
 
 **Key Advantages:**
 
-- 🏆 **Most Complete**: 88 tools vs 20-30 in alternatives
+- 🏆 **Most Complete**: 99 tools vs 20-30 in alternatives
 - ⚡ **Fastest Setup**: 2-click Claude Desktop installation via DXT
 - 🔒 **CI-Tested**: 2750+ tests across Node 22/24, CodeQL + Trivy security scanning
 - 🎯 **TypeScript Native**: 100% type safety, best-in-class developer experience
@@ -180,7 +180,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 
 | Feature                    | This Server                        | Competition     |
 | -------------------------- | ---------------------------------- | --------------- |
-| **Tools Available**        | 88 tools                           | 20-30 tools     |
+| **Tools Available**        | 99 tools                           | 20-30 tools     |
 | **Claude Desktop DXT**     | ✅ 2-click install                 | ❌ Manual setup |
 | **Multi-Site Support**     | ✅ Up to 50 sites                  | ❌ Single site  |
 | **TypeScript**             | ✅ 100% TypeScript, strict mode    | ⚠️ Partial/None |
@@ -188,7 +188,7 @@ Alternative methods: JWT, Basic Auth, API Key — see
 | **Test Coverage**          | ✅ 2750+ tests, ~76% line coverage | ⚠️ Limited      |
 | **Security Scanning**      | ✅ CodeQL + Trivy in CI            | ⚠️ Unknown      |
 
-## 📋 Available Tools (88 Tools)
+## 📋 Available Tools (99 Tools)
 
 ### Content Management
 
@@ -213,6 +213,8 @@ Alternative methods: JWT, Basic Auth, API Key — see
 - **🔐 Authentication** (3 tools) - Auth testing and management
 - **⚡ Cache Management** (4 tools) - Performance caching control
 - **📊 Performance Monitoring** (6 tools) - Real-time metrics and optimization
+- **🧭 Menus** (6 tools) - Navigation menus and items, with local snapshots and restore (any theme)
+- **🧱 Template Parts** (5 tools) - Header and footer on block themes, with revision restore (WordPress 6.4+)
 - **🛠️ System** (1 tool) - Version checking
 
 📖 **[Complete Tool Documentation](docs/api/README.md)** | **[Live API Reference](docs/developer/API_REFERENCE.md)**

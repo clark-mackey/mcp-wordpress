@@ -77,7 +77,7 @@ it; nothing shows as you type, that is normal). Then it:
 1. Tests the login and **refuses an Administrator account**
 2. Checks everything that could fail (your Claude settings file, an existing `wp` entry) **before it writes anything**
 3. Saves the login to `.env` (owner-only file inside the `mcp-wordpress` folder)
-4. Adds 13 tools to Claude's deny list (all deletes, user and app-password tools, site settings), **before** the server
+4. Adds 14 tools to Claude's deny list (all deletes, user and app-password tools, site settings), **before** the server
    is registered
 5. Registers the server with Claude Code as `wp`
 6. Starts the server and calls WordPress as your `ai-editor` user to confirm it works
@@ -115,6 +115,41 @@ Two things to know while you work:
 
 ---
 
+## Header, footer and menus (optional)
+
+Claude can also edit your menus, and the header and footer of **block themes**. Skip this section if you do not need it.
+
+**What works**
+
+- **Menus**: on any theme. Claude can list menus, add, rename, move and delete menu items.
+- **Header and footer**: only on block themes (for example Twenty Twenty-Four), where they are "template parts".
+
+**What does not work**
+
+- Classic themes whose header and footer are PHP files (Claude will say "classic theme").
+- Page builders (Elementor, Divi and similar) and the Customizer.
+
+**Setup**
+
+WordPress keeps menus and header/footer away from Editors. To allow it for the AI user only, copy
+`wordpress/mu-plugins/mcp-wordpress-theme-access.php` from the `mcp-wordpress` folder into the site's
+`wp-content/mu-plugins/` folder (create it if missing). If your AI user is not called `ai-editor`, change the name at
+the top of the file. It gives that one user one extra permission, and only when connecting with the app password, never
+when anyone logs in through the browser. Delete the file to turn it off.
+
+**Undo, and back up first**
+
+- Menus have no WordPress revisions. Before every menu change, the tool saves a copy of the whole menu in the
+  `backups/menus/` folder inside `mcp-wordpress` (owner-only files, never uploaded). Ask Claude to "restore that menu
+  snapshot" (`wp_restore_menu_snapshot`) to undo.
+- Header and footer changes go live on every page at once. WordPress 6.4 or newer keeps revisions of them, and Claude
+  can restore one (`wp_restore_template_part_revision`). On older WordPress there is no undo, so make a site backup
+  first.
+- Deleting a menu item is on the blocked list like the other deletes. Ask Claude to change the menu in a way that does
+  not need a delete, or remove the item in WP admin.
+
+---
+
 ## If it doesn't work
 
 | You see                                        | Fix                                                                                                                                                                                                                                                                                                                                                                                |
@@ -148,5 +183,5 @@ claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"
 On Windows, replace `"$(pwd)/bin/mcp-wordpress.js"` with `"%cd%\bin\mcp-wordpress.js"` (Command Prompt) or
 `"$PWD\bin\mcp-wordpress.js"` (PowerShell).
 
-Then in Claude Code, ask it to merge the 13 `mcp__wp__...` deny rules listed in `bin/workshop.js` (`DENIED_TOOLS`) into
+Then in Claude Code, ask it to merge the 14 `mcp__wp__...` deny rules listed in `bin/workshop.js` (`DENIED_TOOLS`) into
 the `permissions.deny` list in `~/.claude/settings.json`, keeping everything already there.

@@ -28,7 +28,7 @@ Steps:
    password. Wait until I tell you it finished.
 5. Verify without printing any secret: `ls -l .env` shows `-rw-------` (on Windows, `dir .env` shows the file),
    `node -e "console.log(require('fs').readFileSync('.env','utf8').split(/\r?\n/).filter(l=>l.startsWith('WORDPRESS_APP_PASSWORD=')).length)"`
-   prints 1 (works on every OS), and `~/.claude/settings.json` has 13 `mcp__wp__` entries in `permissions.deny`. Do not
+   prints 1 (works on every OS), and `~/.claude/settings.json` has 14 `mcp__wp__` entries in `permissions.deny`. Do not
    `cat .env`.
 6. Tell me to quit and reopen Claude Code, then run `/mcp` and confirm `wp` is connected.
 7. After I reopen, run this test with me: list my 5 newest pages; create a draft page called "MCP test" and try to

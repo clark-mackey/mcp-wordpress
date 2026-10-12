@@ -40,6 +40,13 @@ describe("workshop setup helpers", () => {
       for (const tool of new Set(deleteTools)) expect(DENIED_TOOLS, tool).toContain(tool);
     });
 
+    it("has 14 entries, including the menu item delete", () => {
+      expect(DENIED_TOOLS).toHaveLength(14);
+      expect(new Set(DENIED_TOOLS).size).toBe(14);
+      expect(DENIED_TOOLS).toContain("wp_delete_menu_item");
+      expect(denyRules("wp")).toContain("mcp__wp__wp_delete_menu_item");
+    });
+
     it("builds rules for the chosen server name", () => {
       expect(denyRules("wp")[0]).toBe("mcp__wp__wp_delete_page");
       expect(denyRules("site2")).toHaveLength(DENIED_TOOLS.length);
