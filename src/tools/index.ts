@@ -15,3 +15,4 @@ export { default as SystemTools } from "./system.js";
 export { default as TemplatePartTools } from "./templateParts.js";
 export { default as TaxonomyTools } from "./taxonomies.js";
 export { default as UserTools } from "./users.js";
+export { default as WidgetTools } from "./widgets.js";

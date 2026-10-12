@@ -216,7 +216,7 @@ describe("MenuTools", () => {
     it("explains a permission failure", async () => {
       client.get.mockRejectedValue(new WordPressAPIError("Sorry", 403, "rest_cannot_view"));
       await expect(tools.handleListMenus(client, {})).rejects.toThrow(
-        /AI user lacks edit_theme_options; install wordpress\/mu-plugins\/mcp-wordpress-theme-access\.php/,
+        /AI user lacks edit_theme_options; install mcp-wordpress-theme-access\.php and check its login name/,
       );
     });
 

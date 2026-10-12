@@ -1,12 +1,12 @@
 import { WordPressAPIError } from "@/types/client.js";
 import { preserveToolError } from "@/utils/error.js";
 
-export type ThemeRoute = "menus" | "template-parts" | "template-part-revisions";
+export type ThemeRoute = "menus" | "template-parts" | "template-part-revisions" | "widgets";
 
 const CLASSIC_THEME =
   "this site's theme has no template parts (classic theme) — its header/footer live in PHP files or a page builder and cannot be edited through the REST API";
 const NEEDS_THEME_ACCESS =
-  "the AI user lacks edit_theme_options; install wordpress/mu-plugins/mcp-wordpress-theme-access.php (see docs)";
+  "the AI user lacks edit_theme_options; install mcp-wordpress-theme-access.php and check its login name matches this user";
 
 /**
  * Rewrites the two failures people hit on the theme routes into plain English, keeping the
@@ -21,9 +21,11 @@ export function themeRestError(prefix: string, error: unknown, route: ThemeRoute
       const why =
         route === "template-parts"
           ? CLASSIC_THEME
-          : route === "template-part-revisions"
-            ? "this WordPress version does not keep template part revisions (needs WordPress 6.4 or newer)"
-            : "this WordPress version has no menu endpoints (needs WordPress 5.9 or newer)";
+          : route === "widgets"
+            ? "this site's WordPress is older than 5.8 or widgets are disabled"
+            : route === "template-part-revisions"
+              ? "this WordPress version does not keep template part revisions (needs WordPress 6.4 or newer)"
+              : "this WordPress version has no menu endpoints (needs WordPress 5.9 or newer)";
       throw new WordPressAPIError(`${prefix}: ${why}`, 404, error.code);
     }
     if (error.statusCode === 403 && error.code?.startsWith("rest_cannot_")) {

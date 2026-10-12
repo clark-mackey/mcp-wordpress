@@ -71,7 +71,7 @@ describe("TemplatePartTools", () => {
     );
     client.get.mockRejectedValueOnce(new WordPressAPIError("Sorry", 403, "rest_cannot_view"));
     await expect(tools.handleListTemplateParts(client, {})).rejects.toThrow(
-      "the AI user lacks edit_theme_options; install wordpress/mu-plugins/mcp-wordpress-theme-access.php (see docs)",
+      "the AI user lacks edit_theme_options; install mcp-wordpress-theme-access.php and check its login name matches this user",
     );
   });
 

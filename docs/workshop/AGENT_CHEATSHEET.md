@@ -5,7 +5,7 @@ The person is an agency owner, experienced with Claude Code and GitHub, not nece
 person: `INSTALL.md`. This file is for you.
 
 What is being installed: `github.com/clark-mackey/mcp-wordpress`, an MCP server (Node, stdio) that lets Claude Code edit
-a WordPress site through the WP REST API. It exposes 99 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
+a WordPress site through the WP REST API. It exposes 105 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
 (MIT).
 
 ---
@@ -140,12 +140,12 @@ that is normal). Then it does six things and prints each result:
    stops it
 3. Writes `.env` (mode 600) with the URL, username and password, keeping other keys already in it. Asks before replacing
    an existing `.env` and copies the old one to `.env.bak-<time>` (mode 600)
-4. Merges 14 deny rules into `~/.claude/settings.json`. It copies the old file to `settings.json.bak-<time>` first (mode
+4. Merges 15 deny rules into `~/.claude/settings.json`. It copies the old file to `settings.json.bak-<time>` first (mode
    600), keeps everything already there and the file's permissions, and follows a symlink. This happens **before**
    registration, so a failure never leaves a registered server without its blocked tools
 5. Runs `claude mcp add wp --scope user -- node <path>/bin/mcp-wordpress.js`. It replaces only its own earlier entry
 6. Starts the server the way Claude Code will (ignoring `WORDPRESS_*` and `ALLOW_*` variables set in the shell), lists
-   its tools (expect 99), and calls `wp_get_current_user` to confirm it can reach WordPress
+   its tools (expect 105), and calls `wp_get_current_user` to confirm it can reach WordPress
 
 Flags: `--name <server>` (default `wp`; the deny rules use the same name), `--dry-run` (changes nothing),
 `--allow-admin` (do not suggest this). `--dry-run` needs the `--` separator: `npm run workshop -- --dry-run`. Unknown
@@ -157,17 +157,17 @@ What got stored:
 - `~/.claude.json`: an entry named `wp` with the command and an empty `env`. No secret
 - `~/.claude/settings.json`: the deny rules, plus a `.bak-<time>` copy of the previous file
 
-The 14 blocked tools: `wp_delete_page`, `wp_delete_post`, `wp_delete_media`, `wp_delete_comment`, `wp_delete_category`,
+The 15 blocked tools: `wp_delete_page`, `wp_delete_post`, `wp_delete_media`, `wp_delete_comment`, `wp_delete_category`,
 `wp_delete_tag`, `wp_delete_user`, `wp_delete_application_password`, `wp_create_user`, `wp_update_user`,
-`wp_create_application_password`, `wp_switch_auth_method`, `wp_update_site_settings`, `wp_delete_menu_item` (each as
-`mcp__wp__<tool>`).
+`wp_create_application_password`, `wp_switch_auth_method`, `wp_update_site_settings`, `wp_delete_menu_item`,
+`wp_delete_widget` (each as `mcp__wp__<tool>`).
 
 After it finishes, verify **without printing the secret**:
 
 ```bash
 ls -l .env                                     # expect -rw------- (Windows: dir .env)
 grep -c "WORDPRESS_APP_PASSWORD" .env          # expect 1
-grep -c "mcp__wp__" ~/.claude/settings.json    # expect 14 or more
+grep -c "mcp__wp__" ~/.claude/settings.json    # expect 15 or more
 ```
 
 Do not `cat .env`. Then the person quits and reopens Claude Code and runs `/mcp`. Expect `wp` connected. Every tool not
@@ -195,7 +195,7 @@ Failure map for the script:
 
 If the script cannot run, the manual path is `npm run setup`, then
 `claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"` (Windows cmd: `"%cd%\bin\mcp-wordpress.js"`;
-PowerShell: `"$PWD\bin\mcp-wordpress.js"`), then merge the 14 deny rules by hand. Use the server name `wp`, or change
+PowerShell: `"$PWD\bin\mcp-wordpress.js"`), then merge the 15 deny rules by hand. Use the server name `wp`, or change
 every `mcp__wp__` prefix to match the name chosen.
 
 ---
@@ -237,10 +237,15 @@ A restore keeps the page's status. Restoring a published page changes the live p
 
 ## Header, footer and menus (optional)
 
-Only set this up if the person asks. It adds 11 tools (menus and template parts). Nothing here changes the Step 3 setup
-except one more deny rule, `wp_delete_menu_item`, which `npm run workshop` already adds.
+Only set this up if the person asks. It adds 17 tools (menus, template parts, widgets). Nothing here changes the Step 3
+setup except two more deny rules, `wp_delete_menu_item` and `wp_delete_widget`, which `npm run workshop` already adds.
 
 - **Works**: menus on any theme. Header and footer only on block themes (template parts, `wp_list_template_parts`).
+- **Footer widgets** (classic themes): `wp_list_widget_areas`, `wp_get_widget_area`, `wp_update_widget` (block, core
+  Text and Custom HTML only), `wp_create_widget` (block only). Other plugin widgets are readable by type only. Needs the
+  same mu-plugin. Each change snapshots the area to `backups/widgets/<site-key>/` (bound to the full site URL);
+  `wp_restore_widget_snapshot` reverts, recreates deleted block widgets and removes widgets added later (skipped if any
+  step failed). Warn the person before restoring.
 - **Does not work**: classic theme PHP headers and footers, page builders, the Customizer. The tools say "classic theme"
   in plain words; relay that and stop.
 - **Permission**: Editors lack `edit_theme_options`. Have the person copy

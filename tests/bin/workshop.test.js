@@ -40,10 +40,11 @@ describe("workshop setup helpers", () => {
       for (const tool of new Set(deleteTools)) expect(DENIED_TOOLS, tool).toContain(tool);
     });
 
-    it("has 14 entries, including the menu item delete", () => {
-      expect(DENIED_TOOLS).toHaveLength(14);
-      expect(new Set(DENIED_TOOLS).size).toBe(14);
+    it("has 15 entries, including the menu item and widget deletes", () => {
+      expect(DENIED_TOOLS).toHaveLength(15);
+      expect(new Set(DENIED_TOOLS).size).toBe(15);
       expect(DENIED_TOOLS).toContain("wp_delete_menu_item");
+      expect(DENIED_TOOLS).toContain("wp_delete_widget");
       expect(denyRules("wp")).toContain("mcp__wp__wp_delete_menu_item");
     });
 

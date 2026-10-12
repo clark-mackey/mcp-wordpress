@@ -77,7 +77,7 @@ it; nothing shows as you type, that is normal). Then it:
 1. Tests the login and **refuses an Administrator account**
 2. Checks everything that could fail (your Claude settings file, an existing `wp` entry) **before it writes anything**
 3. Saves the login to `.env` (owner-only file inside the `mcp-wordpress` folder)
-4. Adds 14 tools to Claude's deny list (all deletes, user and app-password tools, site settings), **before** the server
+4. Adds 15 tools to Claude's deny list (all deletes, user and app-password tools, site settings), **before** the server
    is registered
 5. Registers the server with Claude Code as `wp`
 6. Starts the server and calls WordPress as your `ai-editor` user to confirm it works
@@ -117,12 +117,16 @@ Two things to know while you work:
 
 ## Header, footer and menus (optional)
 
-Claude can also edit your menus, and the header and footer of **block themes**. Skip this section if you do not need it.
+Claude can also edit your menus, footer widgets, and the header and footer of **block themes**. Skip this section if you
+do not need it.
 
 **What works**
 
 - **Menus**: on any theme. Claude can list menus, add, rename, move and delete menu items.
 - **Header and footer**: only on block themes (for example Twenty Twenty-Four), where they are "template parts".
+- **Footer widgets**: on classic themes the footer is often a "widget area". Claude can read and edit block widgets and
+  the built-in Text and Custom HTML widgets. Widgets from other plugins can only be seen by type; edit those in WP
+  admin.
 
 **What does not work**
 
@@ -145,8 +149,11 @@ when anyone logs in through the browser. Delete the file to turn it off.
 - Header and footer changes go live on every page at once. WordPress 6.4 or newer keeps revisions of them, and Claude
   can restore one (`wp_restore_template_part_revision`). On older WordPress there is no undo, so make a site backup
   first.
-- Deleting a menu item is on the blocked list like the other deletes. Ask Claude to change the menu in a way that does
-  not need a delete, or remove the item in WP admin.
+- Widgets have no revisions either. Every widget change saves a copy of the whole widget area in `backups/widgets/`; ask
+  Claude to "restore that widget snapshot" (`wp_restore_widget_snapshot`). Restoring also removes widgets added after
+  the snapshot, so say so before you ask.
+- Deleting a menu item or widget is on the blocked list like the other deletes. Ask Claude to change the menu in a way
+  that does not need a delete, or remove the item in WP admin.
 
 ---
 
@@ -183,5 +190,5 @@ claude mcp add wp --scope user -- node "$(pwd)/bin/mcp-wordpress.js"
 On Windows, replace `"$(pwd)/bin/mcp-wordpress.js"` with `"%cd%\bin\mcp-wordpress.js"` (Command Prompt) or
 `"$PWD\bin\mcp-wordpress.js"` (PowerShell).
 
-Then in Claude Code, ask it to merge the 14 `mcp__wp__...` deny rules listed in `bin/workshop.js` (`DENIED_TOOLS`) into
+Then in Claude Code, ask it to merge the 15 `mcp__wp__...` deny rules listed in `bin/workshop.js` (`DENIED_TOOLS`) into
 the `permissions.deny` list in `~/.claude/settings.json`, keeping everything already there.
