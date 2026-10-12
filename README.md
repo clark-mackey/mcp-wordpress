@@ -215,6 +215,9 @@ Alternative methods: JWT, Basic Auth, API Key — see
 - **📊 Performance Monitoring** (6 tools) - Real-time metrics and optimization
 - **🛠️ System** (1 tool) - Version checking
 
+**Not included:** menu, widget and header/footer editing is built but parked, because it needs a WordPress permission
+(`edit_theme_options`) that Editors lack. See [issue #15](https://github.com/clark-mackey/mcp-wordpress/issues/15).
+
 📖 **[Complete Tool Documentation](docs/api/README.md)** | **[Live API Reference](docs/developer/API_REFERENCE.md)**
 
 ## 🤖 Examples
