@@ -25,10 +25,14 @@ import {
   calculateEstimatedImpact,
   convertToCSV,
   createSummaryReport,
+  downsample,
+  formatHitRate,
+  describeHistoryWindow,
 } from "../../../dist/tools/performance/PerformanceHelpers.js";
 
 // Test fixtures
 const createMockMetrics = (overrides = {}) => ({
+  timestamp: 1791532800000,
   requests: {
     total: 1000,
     successful: 980,
@@ -199,6 +203,12 @@ describe("PerformanceHelpers", () => {
       expect(calculateCacheEfficiency(cache)).toBe("Poor");
     });
 
+    // The same output showed hitRate "n/a (no lookups yet)" next to efficiency "Poor".
+    it("has no efficiency before the first lookup", () => {
+      const cache = { hits: 0, misses: 0, hitRate: 0, totalSize: 0, evictions: 0, memoryUsageMB: 0 };
+      expect(calculateCacheEfficiency(cache)).toBe("n/a (no lookups yet)");
+    });
+
     it("should penalize high evictions", () => {
       const highEvictions = { hitRate: 0.85, totalSize: 1000, evictions: 150, memoryUsageMB: 50 };
       const lowEvictions = { hitRate: 0.85, totalSize: 1000, evictions: 10, memoryUsageMB: 50 };
@@ -232,6 +242,40 @@ describe("PerformanceHelpers", () => {
     it("should handle large uptimes", () => {
       const thirtyDays = 30 * 24 * 60 * 60 * 1000;
       expect(formatUptime(thirtyDays)).toBe("30d 0h 0m");
+    });
+  });
+
+  describe("downsample", () => {
+    const items = [1, 2, 3, 4, 5];
+
+    it("returns the items unchanged when they fit", () => {
+      expect(downsample(items, 5)).toBe(items);
+      expect(downsample(items, 10)).toBe(items);
+    });
+
+    it("keeps the first and the newest item", () => {
+      expect(downsample(items, 3)).toEqual([1, 3, 5]);
+    });
+
+    it("keeps only the newest item for a budget of 1, and none for 0", () => {
+      expect(downsample(items, 1)).toEqual([5]);
+      expect(downsample(items, 0)).toEqual([]);
+    });
+  });
+
+  describe("formatHitRate", () => {
+    it("formats a hit rate with one decimal", () => {
+      expect(formatHitRate({ hits: 1, misses: 5, hitRate: 1 / 6 })).toBe("16.7%");
+    });
+
+    it("has no hit rate before the first lookup", () => {
+      expect(formatHitRate({ hits: 0, misses: 0, hitRate: 0 })).toBe("n/a (no lookups yet)");
+    });
+  });
+
+  describe("describeHistoryWindow", () => {
+    it.each(["1h", "6h", "12h", "24h", "7d", "30d"])("knows every timeframe parseTimeframe knows: %s", (tf) => {
+      expect(describeHistoryWindow(tf)).not.toMatch(/not a supported timeframe/);
     });
   });
 
@@ -327,7 +371,7 @@ describe("PerformanceHelpers", () => {
       const data = [createMockMetrics()];
       const result = processHistoricalDataForChart(data);
 
-      expect(result.responseTime[0]).toHaveProperty("timestamp");
+      expect(result.responseTime[0]).toHaveProperty("timestamp", 1791532800000);
       expect(result.responseTime[0]).toHaveProperty("value");
       expect(result.responseTime[0]).toHaveProperty("index");
       expect(result.responseTime[0].index).toBe(0);
@@ -397,6 +441,63 @@ describe("PerformanceHelpers", () => {
     it("should describe Memory Usage improvement", () => {
       const benchmark = { category: "Memory Usage", improvement: 20, status: "average" };
       expect(getBenchmarkImprovementDescription(benchmark)).toBe("Reduce by 20%");
+    });
+
+    // Regression: `improvement` is the distance to the NEXT tier, but the output sat next to the
+    // excellent target — "507ms vs 200 target → Reduce by 7ms" read as an arithmetic error.
+    it("should name the next tier and the excellent target for Response Time", () => {
+      const benchmark = {
+        category: "Response Time",
+        currentValue: 507,
+        benchmarkValue: 200,
+        improvement: 7,
+        status: "average",
+        nextTierStatus: "good",
+        nextTierValue: 500,
+      };
+      expect(getBenchmarkImprovementDescription(benchmark)).toBe(
+        'Reduce by 7ms to reach "good" (500ms); excellent is 200ms',
+      );
+    });
+
+    it("should name the next tier and the excellent target for Cache Hit Rate", () => {
+      const benchmark = {
+        category: "Cache Hit Rate",
+        currentValue: 25,
+        benchmarkValue: 95,
+        improvement: 25,
+        status: "poor",
+        nextTierStatus: "below_average",
+        nextTierValue: 50,
+      };
+      expect(getBenchmarkImprovementDescription(benchmark)).toBe(
+        'Increase by 25.0% to reach "below_average" (50.0%); excellent is 95.0%',
+      );
+    });
+
+    it("should name the next tier for Memory Usage and Error Rate", () => {
+      expect(
+        getBenchmarkImprovementDescription({
+          category: "Memory Usage",
+          currentValue: 60,
+          benchmarkValue: 50,
+          improvement: 10,
+          status: "good",
+          nextTierStatus: "excellent",
+          nextTierValue: 50,
+        }),
+      ).toBe('Reduce by 10% to reach "excellent" (50%)');
+      expect(
+        getBenchmarkImprovementDescription({
+          category: "Error Rate",
+          currentValue: 3,
+          benchmarkValue: 0.5,
+          improvement: 2,
+          status: "average",
+          nextTierStatus: "good",
+          nextTierValue: 1,
+        }),
+      ).toBe('Reduce by 2.00% to reach "good" (1.00%); excellent is 0.50%');
     });
 
     it("should handle unknown categories", () => {

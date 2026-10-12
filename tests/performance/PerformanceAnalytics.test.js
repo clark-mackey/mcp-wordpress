@@ -23,6 +23,7 @@ describe("PerformanceAnalytics", () => {
 
     // Default mock metrics
     mockMetrics = {
+      timestamp: Date.now(),
       requests: {
         total: 100,
         successful: 95,
@@ -90,18 +91,16 @@ describe("PerformanceAnalytics", () => {
     });
 
     it("should limit historical data to lookback period", () => {
-      const oldMetrics = {
-        ...mockMetrics,
-        system: { ...mockMetrics.system, uptime: Date.now() - 25 * 60 * 60 * 1000 }, // 25 hours ago
-      };
+      // Pruned by when the reading was taken; system.uptime is a duration, not a time.
+      const oldMetrics = { ...mockMetrics, timestamp: Date.now() - 25 * 60 * 60 * 1000 }; // 25 hours ago
 
       const recentMetrics = { ...mockMetrics };
 
       analytics.addDataPoint(oldMetrics);
       analytics.addDataPoint(recentMetrics);
 
-      // Should filter out old data beyond lookback period
-      expect(true).toBe(true); // Basic test that method executes
+      // The old point is beyond the 24h lookback period; the recent one stays.
+      expect(analytics.historicalData.map((d) => d.timestamp)).toEqual([recentMetrics.timestamp]);
     });
 
     it("should run anomaly detection when enabled", () => {
@@ -306,6 +305,35 @@ describe("PerformanceAnalytics", () => {
         expect(benchmark).toHaveProperty("status");
         expect(benchmark).toHaveProperty("improvement");
       });
+    });
+
+    it("should report which tier `improvement` is measured to, and that tier's value", () => {
+      mockMetricsCollector.collectCurrentMetrics.mockReturnValue({
+        ...mockMetrics,
+        requests: { ...mockMetrics.requests, averageResponseTime: 507 }, // average: 500ms-1s
+      });
+
+      const responseTime = analytics.benchmarkPerformance().find((b) => b.category === "Response Time");
+
+      expect(responseTime.status).toBe("average");
+      // 507ms -> the "good" tier at 500ms is 7ms away; the excellent target (200ms) is a different number
+      expect(responseTime.improvement).toBeCloseTo(7);
+      expect(responseTime.nextTierStatus).toBe("good");
+      expect(responseTime.nextTierValue).toBe(500);
+      expect(responseTime.benchmarkValue).toBe(200);
+    });
+
+    it("should not report a next tier when performance is already excellent", () => {
+      mockMetricsCollector.collectCurrentMetrics.mockReturnValue({
+        ...mockMetrics,
+        requests: { ...mockMetrics.requests, averageResponseTime: 150 },
+      });
+
+      const responseTime = analytics.benchmarkPerformance().find((b) => b.category === "Response Time");
+
+      expect(responseTime.status).toBe("excellent");
+      expect(responseTime.nextTierStatus).toBeUndefined();
+      expect(responseTime.nextTierValue).toBeUndefined();
     });
 
     it("should classify excellent performance correctly", () => {

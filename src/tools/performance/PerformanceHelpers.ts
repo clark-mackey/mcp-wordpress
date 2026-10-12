@@ -3,7 +3,12 @@
  * Extracted helper functions for performance metrics formatting and calculations
  */
 
-import type { PerformanceMetrics } from "@/performance/PerformanceMonitor.js";
+import {
+  hasCacheActivity,
+  type PerformanceMetrics,
+  type PerformanceSnapshot,
+  roundBreach,
+} from "@/performance/PerformanceMonitor.js";
 import type { BenchmarkComparison, PerformanceAnomaly } from "@/performance/PerformanceAnalytics.js";
 
 /**
@@ -19,10 +24,19 @@ export interface PerformanceAlert {
   timestamp: number;
 }
 
+const HEALTH_LEVELS = ["Critical", "Poor", "Fair", "Good", "Excellent"] as const;
+
 /**
- * Calculate overall health status from metrics
+ * Calculate overall health status from metrics.
+ *
+ * `activeAlerts` (the thresholds breached right now) caps the label so health never reads better than the
+ * alerts allow: any warning limits it to "Good", any error to "Fair", a critical alert to "Critical". The
+ * score alone could say "Excellent" next to an active cache or memory warning. The cap only ever lowers it.
  */
-export function calculateHealthStatus(metrics: PerformanceMetrics): string {
+export function calculateHealthStatus(
+  metrics: PerformanceMetrics,
+  activeAlerts: ReadonlyArray<{ severity: string }> = [],
+): string {
   let score = 100;
 
   if (metrics.requests.averageResponseTime > 2000) score -= 30;
@@ -32,16 +46,40 @@ export function calculateHealthStatus(metrics: PerformanceMetrics): string {
   if (errorRate > 0.05) score -= 30;
   else if (errorRate > 0.02) score -= 15;
 
-  if (metrics.cache.hitRate < 0.7) score -= 25;
-  else if (metrics.cache.hitRate < 0.85) score -= 10;
+  if (hasCacheActivity(metrics.cache)) {
+    if (metrics.cache.hitRate < 0.7) score -= 25;
+    else if (metrics.cache.hitRate < 0.85) score -= 10;
+  }
 
   if (metrics.system.memoryUsage > 85) score -= 15;
 
-  if (score >= 90) return "Excellent";
-  if (score >= 75) return "Good";
-  if (score >= 60) return "Fair";
-  if (score >= 40) return "Poor";
-  return "Critical";
+  let level: number;
+  if (score >= 90) level = 4;
+  else if (score >= 75) level = 3;
+  else if (score >= 60) level = 2;
+  else if (score >= 40) level = 1;
+  else level = 0;
+
+  const ceiling = activeAlerts.some((a) => a.severity === "critical")
+    ? 0
+    : activeAlerts.some((a) => a.severity === "error")
+      ? 2
+      : activeAlerts.length > 0
+        ? 3
+        : 4;
+
+  return HEALTH_LEVELS[Math.min(level, ceiling)] as string;
+}
+
+/**
+ * Status words for the thresholds breached right now. Same vocabulary as {@link calculateAlertStatus}, which
+ * summarises the recorded history instead (alerts never expire, so it cannot say what is wrong now).
+ */
+export function calculateActiveAlertStatus(activeAlerts: ReadonlyArray<{ severity: string }>): string {
+  if (activeAlerts.some((a) => a.severity === "critical")) return "Critical Issues Detected";
+  if (activeAlerts.some((a) => a.severity === "error")) return "High Priority Issues";
+  if (activeAlerts.length > 0) return "Performance Warnings";
+  return "System Healthy";
 }
 
 /**
@@ -62,9 +100,11 @@ export function calculatePerformanceScore(metrics: PerformanceMetrics): number {
   else if (errorRate > 0.02) score -= 10;
 
   // Cache performance scoring
-  if (metrics.cache.hitRate < 0.5) score -= 20;
-  else if (metrics.cache.hitRate < 0.75) score -= 10;
-  else if (metrics.cache.hitRate < 0.9) score -= 5;
+  if (hasCacheActivity(metrics.cache)) {
+    if (metrics.cache.hitRate < 0.5) score -= 20;
+    else if (metrics.cache.hitRate < 0.75) score -= 10;
+    else if (metrics.cache.hitRate < 0.9) score -= 5;
+  }
 
   // System resource scoring
   if (metrics.system.memoryUsage > 90) score -= 10;
@@ -77,6 +117,8 @@ export function calculatePerformanceScore(metrics: PerformanceMetrics): number {
  * Calculate cache efficiency rating
  */
 export function calculateCacheEfficiency(cacheMetrics: PerformanceMetrics["cache"]): string {
+  // A cache with no lookups is neutral, like its hit rate (formatHitRate): not "Poor".
+  if (!hasCacheActivity(cacheMetrics)) return "n/a (no lookups yet)";
   const efficiency =
     cacheMetrics.hitRate * 100 + (cacheMetrics.totalSize > 0 ? 10 : 0) - (cacheMetrics.evictions > 100 ? 10 : 0);
 
@@ -101,25 +143,27 @@ export function formatUptime(uptimeMs: number): string {
   return `${seconds}s`;
 }
 
+const TIMEFRAME_MS: Record<string, number> = {
+  "1h": 60 * 60 * 1000,
+  "6h": 6 * 60 * 60 * 1000,
+  "12h": 12 * 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+};
+const SUPPORTED_TIMEFRAMES = Object.keys(TIMEFRAME_MS);
+
 /**
- * Parse timeframe string to milliseconds
+ * Parse timeframe string to milliseconds (an unknown timeframe is 24h)
  */
 export function parseTimeframe(timeframe: string): number {
-  const map: Record<string, number> = {
-    "1h": 60 * 60 * 1000,
-    "6h": 6 * 60 * 60 * 1000,
-    "12h": 12 * 60 * 60 * 1000,
-    "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-    "30d": 30 * 24 * 60 * 60 * 1000,
-  };
-  return map[timeframe] || map["24h"];
+  return TIMEFRAME_MS[timeframe] ?? (TIMEFRAME_MS["24h"] as number);
 }
 
 /**
  * Extract metric value from data point
  */
-export function extractMetricValue(dataPoint: PerformanceMetrics, metric: string): number {
+export function extractMetricValue(dataPoint: PerformanceSnapshot, metric: string): number {
   switch (metric) {
     case "responseTime":
       return dataPoint.requests.averageResponseTime;
@@ -140,10 +184,12 @@ export function extractMetricValue(dataPoint: PerformanceMetrics, metric: string
  * Process historical data for charting
  */
 export function processHistoricalDataForChart(
-  data: PerformanceMetrics[],
+  history: PerformanceSnapshot[],
   requestedMetrics?: string[],
+  maxPoints: number = MAX_HISTORY_POINTS,
 ): Record<string, unknown> {
-  if (!data.length) return {};
+  if (!history.length) return {};
+  const data = downsample(history, maxPoints);
 
   const allMetrics = ["responseTime", "cacheHitRate", "errorRate", "memoryUsage", "requestVolume"];
   const metricsToProcess = requestedMetrics || allMetrics;
@@ -152,13 +198,35 @@ export function processHistoricalDataForChart(
 
   for (const metric of metricsToProcess) {
     result[metric] = data.map((point, index) => ({
-      timestamp: point.system.uptime,
+      timestamp: point.timestamp,
       value: extractMetricValue(point, metric),
       index,
     }));
   }
 
   return result;
+}
+
+/** Most history points a tool response carries: a day at the 30 s collection interval is 2880 snapshots. */
+export const MAX_HISTORY_POINTS = 100;
+
+/**
+ * A hit rate as tool output shows it: one decimal ("16.7%"), or no rate before the first lookup — a hit rate over
+ * zero lookups is undefined, not 0%.
+ */
+export function formatHitRate(cache: { hits?: number; misses?: number; hitRate: number }): string {
+  return hasCacheActivity(cache) ? `${(cache.hitRate * 100).toFixed(1)}%` : "n/a (no lookups yet)";
+}
+
+/**
+ * Evenly spaced sample of at most `max` items, always keeping the first and the last (the newest reading).
+ */
+export function downsample<T>(items: T[], max: number): T[] {
+  if (items.length <= max) return items;
+  if (max <= 0) return [];
+  if (max === 1) return items.slice(-1);
+  const step = (items.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => items[Math.round(i * step)] as T);
 }
 
 /**
@@ -187,13 +255,29 @@ export function formatBenchmarkStatus(status: string): string {
  * Get benchmark improvement description
  */
 export function getBenchmarkImprovementDescription(benchmark: BenchmarkComparison): string {
-  const improvements: Record<string, string> = {
-    "Response Time": `Reduce by ${benchmark.improvement.toFixed(0)}ms`,
-    "Cache Hit Rate": `Increase by ${benchmark.improvement.toFixed(1)}%`,
-    "Error Rate": `Reduce by ${benchmark.improvement.toFixed(2)}%`,
-    "Memory Usage": `Reduce by ${benchmark.improvement.toFixed(0)}%`,
+  const formats: Record<string, { verb: string; unit: string; decimals: number }> = {
+    "Response Time": { verb: "Reduce", unit: "ms", decimals: 0 },
+    "Cache Hit Rate": { verb: "Increase", unit: "%", decimals: 1 },
+    "Error Rate": { verb: "Reduce", unit: "%", decimals: 2 },
+    "Memory Usage": { verb: "Reduce", unit: "%", decimals: 0 },
   };
-  return improvements[benchmark.category] || `Improve by ${benchmark.improvement}`;
+  const format = formats[benchmark.category];
+  if (!format) {
+    return `Improve by ${benchmark.improvement}`;
+  }
+
+  const fmt = (value: number) => `${value.toFixed(format.decimals)}${format.unit}`;
+  let description = `${format.verb} by ${fmt(benchmark.improvement)}`;
+
+  // `improvement` is the distance to the NEXT tier, which is not the excellent target shown beside
+  // it — say which tier it refers to so "507ms vs 200 → reduce by 7ms" is not read as a bad sum.
+  if (benchmark.nextTierStatus !== undefined && benchmark.nextTierValue !== undefined) {
+    description += ` to reach "${benchmark.nextTierStatus}" (${fmt(benchmark.nextTierValue)})`;
+    if (benchmark.nextTierStatus !== "excellent") {
+      description += `; excellent is ${fmt(benchmark.benchmarkValue)}`;
+    }
+  }
+  return description;
 }
 
 /**
@@ -218,7 +302,35 @@ export function calculateOverallRanking(benchmarks: BenchmarkComparison[]): { pe
  * Format alert message
  */
 export function formatAlertMessage(alert: PerformanceAlert): string {
-  return `${alert.severity.toUpperCase()}: ${alert.message} (${alert.metric}: ${alert.actualValue} vs threshold: ${alert.threshold})`;
+  return `${alert.severity.toUpperCase()}: ${alert.message} (${alert.metric}: ${formatAlertValue(alert.actualValue, alert.threshold)} vs threshold: ${formatAlertValue(alert.threshold)})`;
+}
+
+/**
+ * A readable alert number: 2 decimals from 1 up (2096.285714 -> 2096.29), 3 significant digits below (an error rate
+ * of 1/19 -> 0.0526). If that would print a breaching value equal to its threshold (0.7996 -> 0.8 vs 0.8), more digits
+ * are kept (`roundBreach()`).
+ */
+function formatAlertValue(value: number, threshold?: number): number {
+  const round = (v: number) =>
+    !Number.isFinite(v) || v === 0 ? v : Math.abs(v) >= 1 ? Math.round(v * 100) / 100 : Number(v.toPrecision(3));
+  return threshold === undefined ? round(value) : roundBreach(value, threshold, round);
+}
+
+/** How long the server keeps performance history (`PerformanceMonitor` retentionPeriod, set by PerformanceTools). */
+export const HISTORY_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The window a history request really covers, for scope labels: an unknown timeframe falls back to 24h, and nothing
+ * older than the retention period is kept.
+ */
+export function describeHistoryWindow(timeframe: string): string {
+  if (!SUPPORTED_TIMEFRAMES.includes(timeframe)) {
+    return `the last 24h ("${timeframe}" is not a supported timeframe)`;
+  }
+  if (parseTimeframe(timeframe) > HISTORY_RETENTION_MS) {
+    return `the last 24h (history is kept for 24 hours; ${timeframe} was requested)`;
+  }
+  return `the last ${timeframe}`;
 }
 
 /**
@@ -248,6 +360,21 @@ export function calculateAlertStatus(
   if (high > 2) return "High Priority Issues";
   if (alertSummary.warning + anomalySummary.moderate > 5) return "Performance Warnings";
   return "System Healthy";
+}
+
+const ALERT_STATUS_SEVERITY = [
+  "System Healthy",
+  "Performance Warnings",
+  "High Priority Issues",
+  "Critical Issues Detected",
+];
+
+/**
+ * The more severe of two alert statuses (the words {@link calculateAlertStatus} and
+ * {@link calculateActiveAlertStatus} produce). An unknown status ranks as healthy.
+ */
+export function worseAlertStatus(a: string, b: string): string {
+  return ALERT_STATUS_SEVERITY.indexOf(b) > ALERT_STATUS_SEVERITY.indexOf(a) ? b : a;
 }
 
 /**

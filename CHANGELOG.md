@@ -5,6 +5,134 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.6](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.5...v4.1.6) (2026-10-12)
+
+### 🐛 Bug Fixes
+
+- **performance:** fit trends against time and treat idle caches as no data
+  ([#274](https://github.com/docdyhr/mcp-wordpress/issues/274))
+  ([2996b29](https://github.com/docdyhr/mcp-wordpress/commit/2996b29486a3c46eaf0277aebbd83c41188e3ff1)), closes
+  [270/#272](https://github.com/270/mcp-wordpress/issues/272)
+
+## [4.1.5](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.4...v4.1.5) (2026-10-12)
+
+### 🐛 Bug Fixes
+
+- **seo:** cache SEO results for their TTL in seconds, keyed by every input
+  ([#273](https://github.com/docdyhr/mcp-wordpress/issues/273))
+  ([b0711c6](https://github.com/docdyhr/mcp-wordpress/commit/b0711c6dc6def64bd46b94b56917a306e64e0c18))
+
+## [4.1.4](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.3...v4.1.4) (2026-10-10)
+
+### 🐛 Bug Fixes
+
+- **performance:** keep history snapshots by when they were taken
+  ([#272](https://github.com/docdyhr/mcp-wordpress/issues/272))
+  ([bcdbb2a](https://github.com/docdyhr/mcp-wordpress/commit/bcdbb2a9a767f46d0bc1be1557de401844182772))
+
+## [4.1.3](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.2...v4.1.3) (2026-10-10)
+
+### 🐛 Bug Fixes
+
+- **performance:** round alert values and label cache hit-rate scope
+  ([#270](https://github.com/docdyhr/mcp-wordpress/issues/270))
+  ([d85a047](https://github.com/docdyhr/mcp-wordpress/commit/d85a0474611384fa032c91e6ecdccfe798348298))
+
+## [4.1.2](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.1...v4.1.2) (2026-10-10)
+
+### 🐛 Bug Fixes
+
+- **tools:** decode entities in post, page and media titles
+  ([#269](https://github.com/docdyhr/mcp-wordpress/issues/269))
+  ([f8cfade](https://github.com/docdyhr/mcp-wordpress/commit/f8cfade6e4f699a65b8de81a4b9ba0877686317e))
+
+## [4.1.1](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.0...v4.1.1) (2026-10-10)
+
+### 🐛 Bug Fixes
+
+- **seo:** default analysisType to full in wp_seo_analyze_content
+  ([#268](https://github.com/docdyhr/mcp-wordpress/issues/268))
+  ([1705144](https://github.com/docdyhr/mcp-wordpress/commit/170514490be89c35f8c244e6dcf0da3cecbc7b20))
+
+## [4.1.0](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.11...v4.1.0) (2026-10-09)
+
+### 🚀 Features
+
+- show config source and recent tool calls through tool output
+  ([#266](https://github.com/docdyhr/mcp-wordpress/issues/266))
+  ([bd744ba](https://github.com/docdyhr/mcp-wordpress/commit/bd744baacf9ab14b93af27d413702e373cdb8f75))
+
+## [4.0.11](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.10...v4.0.11) (2026-10-09)
+
+### 🐛 Bug Fixes
+
+- **performance:** make health and alert status agree ([#267](https://github.com/docdyhr/mcp-wordpress/issues/267))
+  ([064ae23](https://github.com/docdyhr/mcp-wordpress/commit/064ae2335bde7fd13a607b73d41ad159a0c75ad5))
+
+## [4.0.10](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.9...v4.0.10) (2026-10-09)
+
+### 🐛 Bug Fixes
+
+- **posts:** keep typed WordPress errors from the post handlers
+  ([#265](https://github.com/docdyhr/mcp-wordpress/issues/265))
+  ([6a0b8f8](https://github.com/docdyhr/mcp-wordpress/commit/6a0b8f853380f84b8eec4cfb266967c4a389e432))
+
+## [4.0.9](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.8...v4.0.9) (2026-10-08)
+
+### 🐛 Bug Fixes
+
+- output formatting for posts, search, SEO, lists and cache info
+  ([#263](https://github.com/docdyhr/mcp-wordpress/issues/263))
+  ([6e16ab9](https://github.com/docdyhr/mcp-wordpress/commit/6e16ab985fc239a7a6fa27e086cb9535e2f1b0cc))
+
+## [4.0.8](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.7...v4.0.8) (2026-10-08)
+
+### 🐛 Bug Fixes
+
+- **performance:** record tool calls, split client errors, fix memory metric
+  ([#262](https://github.com/docdyhr/mcp-wordpress/issues/262))
+  ([ce4d672](https://github.com/docdyhr/mcp-wordpress/commit/ce4d67281515b12c213a0587a32b1d9094c1b816))
+
+## [4.0.7](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.6...v4.0.7) (2026-10-08)
+
+### 🐛 Bug Fixes
+
+- **server:** report HTTP 403 as a permission denial, not an auth failure
+  ([#261](https://github.com/docdyhr/mcp-wordpress/issues/261))
+  ([ad671ba](https://github.com/docdyhr/mcp-wordpress/commit/ad671ba1f3d0bf3f7282e688374c67223d402945))
+
+## [4.0.6](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.5...v4.0.6) (2026-10-08)
+
+### 🐛 Bug Fixes
+
+- **config:** find the multi-site config outside the DXT install dir
+  ([#259](https://github.com/docdyhr/mcp-wordpress/issues/259))
+  ([4677e46](https://github.com/docdyhr/mcp-wordpress/commit/4677e46f3f1e56514bdce10b52ad0ff1b5760aa0))
+
+## [4.0.5](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.4...v4.0.5) (2026-10-08)
+
+### 🐛 Bug Fixes
+
+- **logging:** honor DEBUG=true when choosing the minimum log level
+  ([#260](https://github.com/docdyhr/mcp-wordpress/issues/260))
+  ([2715a60](https://github.com/docdyhr/mcp-wordpress/commit/2715a60c9c34020c704989a0708d9b089277f01e))
+
+## [4.0.4](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.3...v4.0.4) (2026-10-08)
+
+### 🐛 Bug Fixes
+
+- **taxonomies:** pass force=true when deleting tags and categories
+  ([#258](https://github.com/docdyhr/mcp-wordpress/issues/258))
+  ([2296860](https://github.com/docdyhr/mcp-wordpress/commit/22968602c9fb2376e0a20f6c8801706554994b45))
+
+## [4.0.3](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.2...v4.0.3) (2026-10-07)
+
+### 🐛 Bug Fixes
+
+- **deps:** close audit-gate CVEs in @modelcontextprotocol/sdk and proxy-addr
+  ([#255](https://github.com/docdyhr/mcp-wordpress/issues/255))
+  ([dc8171f](https://github.com/docdyhr/mcp-wordpress/commit/dc8171f8cadcb7a92d20552d4925afc3fbd4c866))
+
 ## [4.0.2](https://github.com/docdyhr/mcp-wordpress/compare/v4.0.1...v4.0.2) (2026-09-30)
 
 ### 🐛 Bug Fixes

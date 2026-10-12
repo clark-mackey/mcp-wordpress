@@ -26,7 +26,9 @@ export const analyzeContentTool: Tool = {
       analysisType: {
         type: "string",
         enum: ["readability", "keywords", "structure", "full"],
-        description: "Type of SEO analysis to perform (default: full)",
+        description:
+          "Area to report on (default: full). readability, keywords or structure keep only that area's " +
+          "recommendations and details; the score and metrics always cover the whole post",
       },
       focusKeywords: {
         type: "array",
@@ -206,7 +208,7 @@ export const suggestInternalLinksTool: Tool = {
       },
       maxSuggestions: {
         type: "number",
-        description: "Maximum number of link suggestions (default: 5)",
+        description: "Maximum number of link suggestions (default: 10)",
       },
       minimumRelevance: {
         type: "number",
@@ -234,19 +236,19 @@ export const performSiteAuditTool: Tool = {
       auditType: {
         type: "string",
         enum: ["technical", "content", "performance", "full"],
-        description: "Type of audit to perform (default: full)",
+        description:
+          "Audit sections to run: technical (including site architecture), content, performance, or full for all " +
+          "of them (default: full)",
       },
       maxPages: {
         type: "number",
-        description: "Maximum number of pages to audit (default: 100)",
-      },
-      includeExternalLinks: {
-        type: "boolean",
-        description: "Include external link validation in audit",
+        minimum: 1,
+        maximum: 100,
+        description: "Maximum number of posts, and of pages, to audit (default: 50 each, max 100)",
       },
       force: {
         type: "boolean",
-        description: "Force refresh, bypassing cached audit results",
+        description: "Force refresh, bypassing the audit cached for an hour",
       },
       site: {
         type: "string",
