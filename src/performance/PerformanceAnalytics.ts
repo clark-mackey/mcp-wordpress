@@ -3,8 +3,28 @@
  * Provides insights, predictions, and optimization recommendations
  */
 
-import { PerformanceMetrics } from "./PerformanceMonitor.js";
+import { hasCacheActivity, PerformanceMetrics, type PerformanceSnapshot, toSnapshot } from "./PerformanceMonitor.js";
 import { MetricsCollector } from "./MetricsCollector.js";
+
+/** How far ahead a trend predicts unless asked otherwise (`PerformanceTrend.prediction.timeframe`). */
+const TREND_HORIZON_MS = 30 * 60 * 1000;
+
+/**
+ * Smallest spread anomaly detection assumes for a metric. A steady metric has (near) zero standard deviation, which
+ * would turn a 1 ms or one-request wobble into a large z-score.
+ */
+function anomalyNoiseFloor(metricName: string, mean: number): number {
+  switch (metricName) {
+    case "responseTime":
+      return Math.max(25, Math.abs(mean) * 0.1); // ms
+    case "cacheHitRate":
+      return 0.02; // 2 percentage points
+    case "errorRate":
+      return 0.01; // 1 percentage point
+    default:
+      return Math.max(Math.abs(mean) * 0.1, Number.EPSILON);
+  }
+}
 
 export interface AnalyticsConfig {
   enablePredictiveAnalysis: boolean;
@@ -55,7 +75,9 @@ export interface BenchmarkComparison {
   benchmarkValue: number;
   percentile: number; // Where current performance ranks (0-100)
   status: "excellent" | "good" | "average" | "below_average" | "poor";
-  improvement: number; // How much improvement needed to reach next tier
+  improvement: number; // How much improvement needed to reach the NEXT tier (not the excellent benchmark)
+  nextTierStatus?: string | undefined; // Tier that `improvement` is measured to; absent when already excellent
+  nextTierValue?: number | undefined; // Threshold value of that tier
 }
 
 /**
@@ -64,7 +86,7 @@ export interface BenchmarkComparison {
 export class PerformanceAnalytics {
   private collector: MetricsCollector;
   private config: AnalyticsConfig;
-  private historicalData: PerformanceMetrics[] = [];
+  private historicalData: PerformanceSnapshot[] = [];
   private detectedAnomalies: PerformanceAnomaly[] = [];
   private generatedInsights: PerformanceInsight[] = [];
 
@@ -115,70 +137,65 @@ export class PerformanceAnalytics {
   /**
    * Add historical data point for analysis
    */
-  addDataPoint(metrics: PerformanceMetrics): void {
-    this.historicalData.push(metrics);
-
-    // Limit historical data to lookback period
+  addDataPoint(metrics: PerformanceSnapshot): void {
+    // Limit historical data to lookback period first, so a new point is never judged against readings older than it
+    // (points can arrive hours apart when only tool calls add them).
     const cutoff = Date.now() - this.config.lookbackPeriod;
-    this.historicalData = this.historicalData.filter((data) => data.system.uptime > cutoff);
+    this.historicalData = this.historicalData.filter((data) => data.timestamp >= cutoff); // inclusive, as in the monitor
+    this.pruneAnomalies();
 
-    // Run analysis on new data
+    // Judge the new point against the points before it: included in its own baseline, it drags the mean towards
+    // itself, and on a flat baseline any change at all scored as an anomaly.
     if (this.config.enableAnomalyDetection) {
       this.detectAnomalies(metrics);
     }
+
+    this.historicalData.push(toSnapshot(metrics));
   }
 
   /**
-   * Analyze performance trends
+   * Analyze performance trends, predicting `horizonMs` past the newest point (default 30 minutes).
    */
-  analyzeTrends(): PerformanceTrend[] {
+  analyzeTrends(horizonMs: number = TREND_HORIZON_MS): PerformanceTrend[] {
     if (!this.config.enableTrendAnalysis || this.historicalData.length < 5) {
       return [];
     }
 
-    const trends: PerformanceTrend[] = [];
+    const series = (data: PerformanceSnapshot[], value: (d: PerformanceSnapshot) => number) =>
+      data.map((d) => ({ timestamp: d.timestamp, value: value(d) }));
+    const data = this.historicalData;
 
-    // Analyze response time trend
-    trends.push(
+    return [
       this.analyzeTrend(
         "responseTime",
-        this.historicalData.map((d) => d.requests.averageResponseTime),
+        series(data, (d) => d.requests.averageResponseTime),
+        horizonMs,
       ),
-    );
-
-    // Analyze cache hit rate trend
-    trends.push(
+      // A cache with no lookups is neutral, not a 0% hit rate: such points are not part of the hit-rate trend.
       this.analyzeTrend(
         "cacheHitRate",
-        this.historicalData.map((d) => d.cache.hitRate),
+        series(
+          data.filter((d) => hasCacheActivity(d.cache)),
+          (d) => d.cache.hitRate,
+        ),
+        horizonMs,
       ),
-    );
-
-    // Analyze error rate trend
-    trends.push(
       this.analyzeTrend(
         "errorRate",
-        this.historicalData.map((d) => (d.requests.total > 0 ? d.requests.failed / d.requests.total : 0)),
+        series(data, (d) => (d.requests.total > 0 ? d.requests.failed / d.requests.total : 0)),
+        horizonMs,
       ),
-    );
-
-    // Analyze memory usage trend
-    trends.push(
       this.analyzeTrend(
         "memoryUsage",
-        this.historicalData.map((d) => d.system.memoryUsage),
+        series(data, (d) => d.system.memoryUsage),
+        horizonMs,
       ),
-    );
-
-    // Analyze request volume trend
-    trends.push(
       this.analyzeTrend(
         "requestVolume",
-        this.historicalData.map((d) => d.requests.requestsPerSecond),
+        series(data, (d) => d.requests.requestsPerSecond),
+        horizonMs,
       ),
-    );
-
-    return trends;
+    ];
   }
 
   /**
@@ -354,7 +371,8 @@ export class PerformanceAnalytics {
       return { predictions: [], alerts: [] };
     }
 
-    const trends = this.analyzeTrends();
+    // Predict over the requested horizon: the alerts below say "in N minutes".
+    const trends = this.analyzeTrends(timeframeMinutes * 60 * 1000);
     const predictions: Array<{
       metric: string;
       currentValue: number;
@@ -365,7 +383,6 @@ export class PerformanceAnalytics {
     const alerts: string[] = [];
 
     for (const trend of trends) {
-      const _timeframeMs = timeframeMinutes * 60 * 1000;
       const predictedValue = trend.prediction.nextValue;
 
       predictions.push({
@@ -440,6 +457,7 @@ export class PerformanceAnalytics {
    * Get anomalies detected in recent data
    */
   getAnomalies(severity?: string): PerformanceAnomaly[] {
+    this.pruneAnomalies();
     if (severity) {
       return this.detectedAnomalies.filter((a) => a.severity === severity);
     }
@@ -493,7 +511,12 @@ export class PerformanceAnalytics {
   /**
    * Analyze trend for a specific metric
    */
-  private analyzeTrend(metricName: string, values: number[]): PerformanceTrend {
+  private analyzeTrend(
+    metricName: string,
+    points: Array<{ timestamp: number; value: number }>,
+    horizonMs: number,
+  ): PerformanceTrend {
+    const values = points.map((p) => p.value);
     if (values.length < 3) {
       return {
         metric: metricName,
@@ -508,9 +531,14 @@ export class PerformanceAnalytics {
       };
     }
 
-    // Calculate linear regression
+    // Fit against time (minutes since the first point), not the sample index: points are not evenly spaced (the
+    // analytics timer and every wp_performance_history call add one). Points without a time spread (all stamped
+    // alike) fall back to the index, and the prediction is then one sample ahead.
     const n = values.length;
-    const x = Array.from({ length: n }, (_, i) => i);
+    const first = points[0]!.timestamp;
+    const timed = points[n - 1]!.timestamp > first;
+    const x = timed ? points.map((p) => (p.timestamp - first) / 60_000) : points.map((_, i) => i);
+    const ahead = timed ? horizonMs / 60_000 : 1;
     const y = values;
 
     const sumX = x.reduce((a, b) => a + b, 0);
@@ -531,15 +559,20 @@ export class PerformanceAnalytics {
       })
       .reduce((a, b) => a + b, 0);
 
-    const rSquared = 1 - residualSumSquares / totalSumSquares;
+    // A flat series has nothing to explain (0/0): no trend, no confidence.
+    const rSquared = totalSumSquares > 0 ? 1 - residualSumSquares / totalSumSquares : 0;
 
     // Determine direction and change rate
-    const currentValue = values[values.length - 1];
-    const previousValue = values[values.length - 2];
-    const changeRate = Math.abs((currentValue - previousValue) / previousValue) * 100;
+    const currentValue = values[values.length - 1] as number;
+    const previousValue = values[values.length - 2] as number;
+    // From 0 there is no meaningful percentage; report no rate rather than Infinity.
+    const changeRate = previousValue !== 0 ? Math.abs((currentValue - previousValue) / previousValue) * 100 : 0;
 
+    // A trend is a fitted change across the observed points larger than the metric's noise floor (the same floor
+    // anomaly detection uses), in the metric's own units — not a fixed slope that meant ms for one metric and a whole
+    // 10 percentage points for another. It describes the history, so the prediction horizon does not change it.
     let direction: "improving" | "declining" | "stable" = "stable";
-    if (Math.abs(slope) > 0.1) {
+    if (Math.abs(slope * (x[n - 1]! - x[0]!)) > anomalyNoiseFloor(metricName, yMean)) {
       // For metrics where lower is better (response time, error rate)
       if (["responseTime", "errorRate", "memoryUsage"].includes(metricName)) {
         direction = slope < 0 ? "improving" : "declining";
@@ -549,8 +582,8 @@ export class PerformanceAnalytics {
       }
     }
 
-    // Predict next value
-    const nextValue = slope * n + intercept;
+    // Predict the value one horizon past the newest point
+    const nextValue = slope * (x[n - 1]! + ahead) + intercept;
 
     return {
       metric: metricName,
@@ -559,7 +592,7 @@ export class PerformanceAnalytics {
       confidence: Math.max(0, Math.min(1, rSquared)),
       prediction: {
         nextValue: Math.max(0, nextValue),
-        timeframe: 30 * 60 * 1000, // 30 minutes
+        timeframe: timed ? horizonMs : 0, // 0: one sample ahead, the points carry no time spread
         confidence: Math.max(0, Math.min(1, rSquared * 0.8)), // Slightly lower confidence for predictions
       },
     };
@@ -568,7 +601,7 @@ export class PerformanceAnalytics {
   /**
    * Detect anomalies in current metrics
    */
-  private detectAnomalies(metrics: PerformanceMetrics): void {
+  private detectAnomalies(metrics: PerformanceSnapshot): void {
     if (this.historicalData.length < 10) return; // Need historical context
 
     const recentData = this.historicalData.slice(-10);
@@ -580,35 +613,43 @@ export class PerformanceAnalytics {
       metrics.requests.averageResponseTime,
       responseTimes,
       "Response time spike detected",
+      "higher",
     );
 
-    // Check cache hit rate anomalies
-    const hitRates = recentData.map((d) => d.cache.hitRate);
-    this.checkMetricAnomaly("cacheHitRate", metrics.cache.hitRate, hitRates, "Cache hit rate drop detected");
+    // Check cache hit rate anomalies. A cache with no lookups yet is neutral, not a 0% hit rate: it is neither judged
+    // nor part of the baseline (an idle start would make the first warm-up look like a jump).
+    if (hasCacheActivity(metrics.cache)) {
+      const hitRates = recentData.filter((d) => hasCacheActivity(d.cache)).map((d) => d.cache.hitRate);
+      this.checkMetricAnomaly("cacheHitRate", metrics.cache.hitRate, hitRates, "Cache hit rate drop detected", "lower");
+    }
 
     // Check error rate anomalies
     const errorRates = recentData.map((d) => (d.requests.total > 0 ? d.requests.failed / d.requests.total : 0));
     const currentErrorRate = metrics.requests.total > 0 ? metrics.requests.failed / metrics.requests.total : 0;
-    this.checkMetricAnomaly("errorRate", currentErrorRate, errorRates, "Error rate spike detected");
+    this.checkMetricAnomaly("errorRate", currentErrorRate, errorRates, "Error rate spike detected", "higher");
   }
 
   /**
-   * Check if a metric value is anomalous
+   * Check if a metric value is anomalous. Only a move in the worse direction counts: a response time that drops or a
+   * hit rate that rises is an improvement, not an anomaly.
    */
   private checkMetricAnomaly(
     metricName: string,
     currentValue: number,
     historicalValues: number[],
     description: string,
+    worseWhen: "higher" | "lower",
   ): void {
     if (historicalValues.length < 5) return;
 
     const mean = historicalValues.reduce((a, b) => a + b, 0) / historicalValues.length;
     const variance = historicalValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / historicalValues.length;
-    const standardDeviation = Math.sqrt(variance);
+    // A steady metric has (near) zero spread, which turns any wobble into a huge z-score. Below the noise floor a
+    // difference is not a signal.
+    const standardDeviation = Math.max(Math.sqrt(variance), anomalyNoiseFloor(metricName, mean));
 
-    // Calculate z-score
-    const zScore = Math.abs((currentValue - mean) / standardDeviation);
+    // Calculate z-score, positive when the metric moved the worse way
+    const zScore = ((worseWhen === "higher" ? 1 : -1) * (currentValue - mean)) / standardDeviation;
 
     // Determine sensitivity threshold
     let threshold = 2; // Default for medium sensitivity
@@ -616,7 +657,8 @@ export class PerformanceAnalytics {
     if (this.config.sensitivityLevel === "high") threshold = 1.5;
 
     if (zScore > threshold) {
-      const deviation = ((currentValue - mean) / mean) * 100;
+      // Percent change from the mean; from a zero mean (e.g. no errors so far) any rise counts as +100%.
+      const deviation = mean !== 0 ? ((currentValue - mean) / mean) * 100 : Math.sign(currentValue) * 100;
 
       let severity: "minor" | "moderate" | "major" | "critical" = "minor";
       if (zScore > 4) severity = "critical";
@@ -640,6 +682,12 @@ export class PerformanceAnalytics {
         this.detectedAnomalies = this.detectedAnomalies.slice(-50);
       }
     }
+  }
+
+  /** Drop anomalies older than the lookback period: they are history, and the alert status counts them. */
+  private pruneAnomalies(): void {
+    const cutoff = Date.now() - this.config.lookbackPeriod;
+    this.detectedAnomalies = this.detectedAnomalies.filter((a) => a.timestamp >= cutoff);
   }
 
   /**
@@ -670,6 +718,12 @@ export class PerformanceAnalytics {
   ): BenchmarkComparison {
     let status: "excellent" | "good" | "average" | "below_average" | "poor" = "poor";
     let improvement = 0;
+    const nextTierByStatus = {
+      good: "excellent",
+      average: "good",
+      below_average: "average",
+      poor: "below_average",
+    } as const;
 
     if (higherIsBetter) {
       if (currentValue >= (benchmarks.excellent as number)) status = "excellent";
@@ -679,15 +733,7 @@ export class PerformanceAnalytics {
 
       // Calculate improvement needed
       if (status !== "excellent") {
-        const nextTier =
-          status === "good"
-            ? (benchmarks.excellent as number)
-            : status === "average"
-              ? (benchmarks.good as number)
-              : status === "below_average"
-                ? (benchmarks.average as number)
-                : (benchmarks.below_average as number);
-        improvement = nextTier - currentValue;
+        improvement = (benchmarks[nextTierByStatus[status]] as number) - currentValue;
       }
     } else {
       if (currentValue <= (benchmarks.excellent as number)) status = "excellent";
@@ -697,15 +743,7 @@ export class PerformanceAnalytics {
 
       // Calculate improvement needed
       if (status !== "excellent") {
-        const nextTier =
-          status === "good"
-            ? benchmarks.excellent
-            : status === "average"
-              ? benchmarks.good
-              : status === "below_average"
-                ? benchmarks.average
-                : benchmarks.below_average;
-        improvement = currentValue - (nextTier as number);
+        improvement = currentValue - (benchmarks[nextTierByStatus[status]] as number);
       }
     }
 
@@ -728,6 +766,8 @@ export class PerformanceAnalytics {
       percentile,
       status,
       improvement,
+      nextTierStatus: status === "excellent" ? undefined : nextTierByStatus[status],
+      nextTierValue: status === "excellent" ? undefined : (benchmarks[nextTierByStatus[status]] as number),
     };
   }
 

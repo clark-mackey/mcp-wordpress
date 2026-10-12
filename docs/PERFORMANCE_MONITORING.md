@@ -251,6 +251,30 @@ wp_performance_export --format=summary --includeAnalytics=true
 - **Evictions**: Number of cache entries removed due to space limits
 - **Cache Efficiency**: Overall cache performance rating
 
+### Scope of the figures
+
+Request and cache counters are totals since the server started. The same minute can therefore show different hit rates,
+and each response labels which one it reports:
+
+| Scope                             | Where                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| All sites combined                | `wp_performance_stats` overview/cache, `wp_performance_benchmark`, `wp_performance_optimize`, export |
+| One site                          | `wp_cache_stats`, `wp_cache_info`, `wp_performance_stats` `siteSpecific`, export `siteComparison`    |
+| The value at an alert's timestamp | each recorded alert in `wp_performance_alerts` (`activeAlerts` shows what is breaching now)          |
+
+The label is a `scope` field next to the figures, or `metadata.scope`. In `wp_performance_stats`,
+`siteSpecific.cache.hitRate` is a percentage string (`"16.7%"`) like the other hit rates. `wp_performance_history`
+averages snapshots taken in the timeframe; each snapshot holds totals since the server started, and `totalRequests` is
+the number of requests between the first and last snapshot. History is kept for 24 hours, so `7d` and `30d` cover the
+last 24 hours (the label says so). Trends, anomalies and predictions use the analytics' own 24-hour history whatever the
+timeframe. Hit-rate percentage strings in `wp_performance_stats` and the cache tools have one decimal (`"16.7%"`);
+history's `averageCacheHitRate` and export's `siteComparison` keep the 0–1 fraction. Before the first cache lookup there
+is no hit rate: the strings read `"n/a (no lookups yet)"` (so does the cache `efficiency`), and `averageCacheHitRate`
+leaves such snapshots out (`null` if all of them are). Chart series in history and export are sampled to at most 100
+points; `dataPoints`, `historicalDataPoints` and the summary count every snapshot. A repeat of a recorded alert within
+the 15-minute cooldown updates that alert's message, value and timestamp. Alert messages round their numbers, but never
+so far that a breach reads as its threshold (`2000.004ms` against 2000 ms, not `2000ms`).
+
 ### System Metrics
 
 - **Memory Usage**: Current memory consumption percentage
@@ -268,18 +292,23 @@ wp_performance_export --format=summary --includeAnalytics=true
 
 ### Trend Analysis
 
-The system automatically analyzes performance trends using linear regression:
+The system automatically analyzes performance trends using linear regression over time (snapshots are not evenly spaced,
+so each point counts at the time it was taken):
 
-- **Direction**: `improving`, `declining`, or `stable`
+- **Direction**: `improving`, `declining`, or `stable` — a direction only when the fitted change over the history is
+  larger than the metric's noise floor
 - **Change Rate**: Percentage change over time
 - **Confidence**: Statistical confidence in the trend (0-1)
-- **Predictions**: Forecasted future values
+- **Predictions**: The value `prediction.timeframe` after the newest snapshot (30 minutes; `predictPerformance` uses its
+  own horizon)
 
 ### Anomaly Detection
 
 Automatic detection of unusual performance patterns:
 
 - **Z-Score Analysis**: Statistical deviation from normal patterns
+- **Worse Direction Only**: a response time or error rate going up, or a cache hit rate going down; improvements are not
+  anomalies, and a cache with no lookups yet is not judged
 - **Configurable Sensitivity**: `low`, `medium`, `high` detection levels
 - **Severity Classification**: `minor`, `moderate`, `major`, `critical`
 - **Possible Causes**: AI-generated suggestions for anomaly causes

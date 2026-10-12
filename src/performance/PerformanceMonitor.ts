@@ -3,14 +3,43 @@
  * Collects, analyzes, and reports performance metrics
  */
 
+import v8 from "v8";
 import { ConfigHelpers } from "@/config/Config.js";
 
+/**
+ * One MCP tool invocation, kept in memory so a user can see "which tool, which site, did it work, why not"
+ * through a tool — the host (Claude Desktop) does not capture an installed extension's stderr. Call
+ * parameters are deliberately not stored.
+ */
+export interface ToolCallRecord {
+  /** Epoch milliseconds when the call finished. */
+  timestamp: number;
+  tool: string;
+  site?: string | undefined;
+  status: "ok" | "error";
+  durationMs: number;
+  /** HTTP status of the underlying WordPress error, when there was one. */
+  statusCode?: number | undefined;
+  /** WordPress/transport error code, e.g. "rest_forbidden". */
+  errorCode?: string | undefined;
+  /** The error's class name, e.g. "WordPressAPIError". Never the message: that can quote call arguments. */
+  errorType?: string | undefined;
+}
+
+const MAX_RECENT_TOOL_CALLS = 50;
+
 export interface PerformanceMetrics {
+  /** When this reading was taken (epoch ms). History is selected and pruned by it; `system.uptime` is a duration. */
+  timestamp: number;
+
   // Request Performance
   requests: {
     total: number;
     successful: number;
+    /** Server, network and rate-limit failures — the numerator of the error rate. */
     failed: number;
+    /** Expected 4xx responses (not found, forbidden, invalid input); not counted in `failed`. */
+    clientErrors: number;
     averageResponseTime: number;
     minResponseTime: number;
     maxResponseTime: number;
@@ -34,7 +63,11 @@ export interface PerformanceMetrics {
   // System Performance
   system: {
     cpuUsage: number;
+    /** Heap used as a % of the V8 heap limit (how close the process is to running out of heap). */
     memoryUsage: number;
+    rssMB: number;
+    heapUsedMB: number;
+    heapLimitMB: number;
     uptime: number;
     activeConnections: number;
     concurrentRequests: number;
@@ -64,6 +97,17 @@ export interface PerformanceMetrics {
   };
 }
 
+/**
+ * A metrics reading as kept in the history: everything except the per-tool maps, which nothing that reads history uses
+ * and which made each of the (up to 2880 per day) snapshots several KB.
+ */
+export type PerformanceSnapshot = Omit<PerformanceMetrics, "tools">;
+
+export function toSnapshot(metrics: PerformanceSnapshot): PerformanceSnapshot {
+  const { timestamp, requests, cache, system, wordpress } = metrics;
+  return { timestamp, requests, cache, system, wordpress };
+}
+
 export interface PerformanceAlert {
   id: string;
   timestamp: number;
@@ -74,6 +118,122 @@ export interface PerformanceAlert {
   threshold: number;
   actualValue: number;
   suggestion?: string;
+}
+
+export const DEFAULT_ALERT_THRESHOLDS = {
+  responseTime: 2000, // 2 seconds
+  errorRate: 0.05, // 5%
+  cacheHitRate: 0.8, // 80%
+  memoryUsage: 80, // % of the V8 heap limit
+  cpuUsage: 80, // 80%
+};
+
+/**
+ * A threshold that is breached by the CURRENT metrics. Recorded alerts (getAlerts) are a history that never
+ * expires; these are what is wrong right now, and they are produced by the same rules that raise the alerts.
+ */
+export interface AlertCondition {
+  severity: "warning" | "error";
+  category: "performance" | "cache" | "system";
+  metric: string;
+  message: string;
+  threshold: number;
+  actualValue: number;
+  suggestion: string;
+}
+
+/**
+ * False only when the cache is known to have had no lookups at all (both counts explicitly 0), e.g. caching is
+ * disabled or nothing has been requested yet. A hit rate over zero lookups is undefined, not "0%", so it must
+ * not raise an alert or cost health points. Counts that are absent are treated as "unknown", i.e. active.
+ */
+export function hasCacheActivity(cache: { hits?: number; misses?: number }): boolean {
+  return !(cache.hits === 0 && cache.misses === 0);
+}
+
+/**
+ * Round a breaching value for display without printing it as its threshold: when `round` gives both the same number
+ * (2000.004 ms against 2000 ms, a 79.96% hit rate against 80%), keep the fewest significant digits that tell them
+ * apart, on the breaching side.
+ */
+export function roundBreach(value: number, threshold: number, round: (v: number) => number): number {
+  const rounded = round(value);
+  const shownThreshold = round(threshold);
+  if (!Number.isFinite(value) || value === threshold || rounded !== shownThreshold) return rounded;
+  for (let digits = 1; digits <= 17; digits++) {
+    const precise = Number(value.toPrecision(digits));
+    if (precise !== shownThreshold && Math.sign(precise - threshold) === Math.sign(value - threshold)) return precise;
+  }
+  return value;
+}
+
+// Heap usage this high leaves almost no headroom before V8 throws away the process.
+const MEMORY_ERROR_PERCENT = 95;
+
+/**
+ * Evaluate the alert rules against a metrics snapshot. Pure: the monitor uses it to raise alerts and the
+ * performance tools use it to report what is breaching now, so the two can never disagree.
+ */
+export function evaluateAlertConditions(
+  metrics: Pick<PerformanceMetrics, "requests" | "cache" | "system">,
+  thresholds: PerformanceConfig["alertThresholds"],
+): AlertCondition[] {
+  const conditions: AlertCondition[] = [];
+  const { requests, cache, system } = metrics;
+
+  if (requests.averageResponseTime > thresholds.responseTime) {
+    conditions.push({
+      severity: "warning",
+      category: "performance",
+      metric: "averageResponseTime",
+      message: `High response time: ${roundBreach(requests.averageResponseTime, thresholds.responseTime, Math.round)}ms`,
+      threshold: thresholds.responseTime,
+      actualValue: requests.averageResponseTime,
+      suggestion: "Consider enabling caching or optimizing queries",
+    });
+  }
+
+  if (requests.total > 0) {
+    const errorRate = requests.failed / requests.total;
+    if (errorRate > thresholds.errorRate) {
+      conditions.push({
+        severity: "error",
+        category: "performance",
+        metric: "errorRate",
+        message: `High error rate: ${roundBreach(errorRate * 100, thresholds.errorRate * 100, Math.round)}%`,
+        threshold: thresholds.errorRate,
+        actualValue: errorRate,
+        suggestion: "Check WordPress connectivity and authentication",
+      });
+    }
+  }
+
+  if (hasCacheActivity(cache) && cache.hitRate < thresholds.cacheHitRate) {
+    conditions.push({
+      severity: "warning",
+      category: "cache",
+      metric: "cacheHitRate",
+      message: `Low cache hit rate: ${roundBreach(cache.hitRate * 100, thresholds.cacheHitRate * 100, Math.round)}%`,
+      threshold: thresholds.cacheHitRate,
+      actualValue: cache.hitRate,
+      suggestion: "Consider cache warming or adjusting TTL values",
+    });
+  }
+
+  // The memoryUsage threshold was configured but never evaluated anywhere.
+  if (system.memoryUsage > thresholds.memoryUsage) {
+    conditions.push({
+      severity: system.memoryUsage > MEMORY_ERROR_PERCENT ? "error" : "warning",
+      category: "system",
+      metric: "memoryUsage",
+      message: `High memory usage: ${system.memoryUsage}% of the V8 heap limit`,
+      threshold: thresholds.memoryUsage,
+      actualValue: system.memoryUsage,
+      suggestion: "Lower the cache size or restart the server before the heap limit is reached",
+    });
+  }
+
+  return conditions;
 }
 
 export interface PerformanceConfig {
@@ -96,11 +256,12 @@ export interface PerformanceConfig {
  */
 export class PerformanceMonitor {
   private metrics: PerformanceMetrics;
-  private historicalData: PerformanceMetrics[] = [];
+  private historicalData: PerformanceSnapshot[] = [];
   private alerts: PerformanceAlert[] = [];
   private config: PerformanceConfig;
   private startTime: number;
   private responseTimes: number[] = [];
+  private recentToolCalls: ToolCallRecord[] = [];
   private collectionTimer?: NodeJS.Timeout;
   private lastAlertTime: Map<string, number> = new Map();
   private static readonly ALERT_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
@@ -110,13 +271,7 @@ export class PerformanceMonitor {
     this.config = {
       collectInterval: 30000, // 30 seconds
       retentionPeriod: 24 * 60 * 60 * 1000, // 24 hours
-      alertThresholds: {
-        responseTime: 2000, // 2 seconds
-        errorRate: 0.05, // 5%
-        cacheHitRate: 0.8, // 80%
-        memoryUsage: 80, // 80%
-        cpuUsage: 80, // 80%
-      },
+      alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS },
       enableRealTimeMonitoring: true,
       enableHistoricalData: true,
       enableAlerts: true,
@@ -136,10 +291,12 @@ export class PerformanceMonitor {
    */
   private initializeMetrics(): PerformanceMetrics {
     return {
+      timestamp: Date.now(),
       requests: {
         total: 0,
         successful: 0,
         failed: 0,
+        clientErrors: 0,
         averageResponseTime: 0,
         minResponseTime: 0,
         maxResponseTime: 0,
@@ -160,6 +317,9 @@ export class PerformanceMonitor {
       system: {
         cpuUsage: 0,
         memoryUsage: 0,
+        rssMB: 0,
+        heapUsedMB: 0,
+        heapLimitMB: 0,
         uptime: 0,
         activeConnections: 0,
         concurrentRequests: 0,
@@ -182,11 +342,18 @@ export class PerformanceMonitor {
   /**
    * Record a request performance metric
    */
-  recordRequest(responseTime: number, success: boolean, toolName?: string): void {
+  recordRequest(
+    responseTime: number,
+    success: boolean,
+    toolName?: string,
+    options?: { clientError?: boolean | undefined },
+  ): void {
     this.metrics.requests.total++;
 
     if (success) {
       this.metrics.requests.successful++;
+    } else if (options?.clientError) {
+      this.metrics.requests.clientErrors++;
     } else {
       this.metrics.requests.failed++;
     }
@@ -204,6 +371,42 @@ export class PerformanceMonitor {
     if (this.config.enableAlerts) {
       this.checkPerformanceAlerts();
     }
+  }
+
+  /**
+   * Record one MCP tool invocation. A tool call is not an HTTP request — it may make several
+   * or none (e.g. wp_performance_stats) — so this updates tool usage only, never request totals.
+   */
+  recordToolCall(
+    toolName: string,
+    responseTime: number,
+    success: boolean,
+    details: { site?: string | undefined; error?: Error | undefined } = {},
+  ): void {
+    this.recordToolUsage(toolName, responseTime, success);
+
+    const { site, error } = details;
+    const wpError = error as (Error & { statusCode?: unknown; code?: unknown }) | undefined;
+    this.recentToolCalls.push({
+      timestamp: Date.now(),
+      tool: toolName,
+      site,
+      status: success ? "ok" : "error",
+      durationMs: responseTime,
+      statusCode: typeof wpError?.statusCode === "number" ? wpError.statusCode : undefined,
+      errorCode: typeof wpError?.code === "string" ? wpError.code : undefined,
+      errorType: error?.name || undefined,
+    });
+    if (this.recentToolCalls.length > MAX_RECENT_TOOL_CALLS) {
+      this.recentToolCalls.shift();
+    }
+  }
+
+  /**
+   * The most recent tool calls, newest first (at most the last 50 are kept).
+   */
+  getRecentToolCalls(limit: number = MAX_RECENT_TOOL_CALLS): ToolCallRecord[] {
+    return limit > 0 ? this.recentToolCalls.slice(-limit).reverse() : [];
   }
 
   /**
@@ -226,10 +429,17 @@ export class PerformanceMonitor {
    */
   updateSystemMetrics(): void {
     const memUsage = process.memoryUsage();
+    const heapLimit = v8.getHeapStatistics().heap_size_limit;
+    const toMB = (bytes: number) => Math.round((bytes / (1024 * 1024)) * 10) / 10;
 
     this.metrics.system = {
       cpuUsage: this.getCpuUsage(),
-      memoryUsage: Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100),
+      // heapUsed/heapTotal is ~100% on any healthy process (V8 only grows the heap as needed), so
+      // measure against the heap limit instead — that is the figure that predicts running out.
+      memoryUsage: heapLimit > 0 ? Math.round((memUsage.heapUsed / heapLimit) * 1000) / 10 : 0,
+      rssMB: toMB(memUsage.rss),
+      heapUsedMB: toMB(memUsage.heapUsed),
+      heapLimitMB: toMB(heapLimit),
       uptime: Date.now() - this.startTime,
       activeConnections: 1, // Will be updated by connection manager
       concurrentRequests: 0, // Will be updated by request manager
@@ -241,13 +451,16 @@ export class PerformanceMonitor {
    */
   getMetrics(): PerformanceMetrics {
     this.updateSystemMetrics();
-    return { ...this.metrics };
+    // A deep copy: recordRequest() updates the nested counters in place, so a shallow copy stored in the history
+    // would keep changing with the live metrics.
+    this.metrics.timestamp = Date.now();
+    return structuredClone(this.metrics);
   }
 
   /**
    * Get historical performance data
    */
-  getHistoricalData(startTime?: number, endTime?: number): PerformanceMetrics[] {
+  getHistoricalData(startTime?: number, endTime?: number): PerformanceSnapshot[] {
     if (!this.config.enableHistoricalData) {
       return [];
     }
@@ -255,11 +468,11 @@ export class PerformanceMonitor {
     let data = [...this.historicalData];
 
     if (startTime) {
-      data = data.filter((m) => m.system.uptime >= startTime);
+      data = data.filter((m) => m.timestamp >= startTime);
     }
 
     if (endTime) {
-      data = data.filter((m) => m.system.uptime <= endTime);
+      data = data.filter((m) => m.timestamp <= endTime);
     }
 
     return data;
@@ -328,14 +541,17 @@ export class PerformanceMonitor {
   private startCollection(): void {
     // unref() so this background timer alone can never keep a process (or a
     // one-shot script that merely imports/instantiates this class) alive.
-    this.collectionTimer = setInterval(() => {
-      const snapshot = this.getMetrics();
+    this.collectionTimer = setInterval(() => this.recordSnapshot(), this.config.collectInterval).unref();
+  }
 
-      if (this.config.enableHistoricalData) {
-        this.historicalData.push(snapshot);
-        this.cleanupOldData();
-      }
-    }, this.config.collectInterval).unref();
+  /**
+   * Store the current metrics in the history (what the collection timer does every `collectInterval`) and drop
+   * snapshots older than `retentionPeriod`.
+   */
+  recordSnapshot(): void {
+    if (!this.config.enableHistoricalData) return;
+    this.historicalData.push(toSnapshot(this.getMetrics()));
+    this.cleanupOldData();
   }
 
   /**
@@ -441,47 +657,20 @@ export class PerformanceMonitor {
    * Check for performance alerts
    */
   private checkPerformanceAlerts(): void {
-    const thresholds = this.config.alertThresholds;
-
-    // Response time alert
-    if (this.metrics.requests.averageResponseTime > thresholds.responseTime) {
-      this.addAlert(
-        "warning",
-        "performance",
-        `High response time: ${this.metrics.requests.averageResponseTime}ms`,
-        "averageResponseTime",
-        thresholds.responseTime,
-        this.metrics.requests.averageResponseTime,
-        "Consider enabling caching or optimizing queries",
-      );
+    // Memory must be the current reading, not the last 30-second sample.
+    this.updateSystemMetrics();
+    for (const c of evaluateAlertConditions(this.metrics, this.config.alertThresholds)) {
+      this.addAlert(c.severity, c.category, c.message, c.metric, c.threshold, c.actualValue, c.suggestion);
     }
+  }
 
-    // Error rate alert
-    const errorRate = this.metrics.requests.failed / this.metrics.requests.total;
-    if (errorRate > thresholds.errorRate) {
-      this.addAlert(
-        "error",
-        "performance",
-        `High error rate: ${Math.round(errorRate * 100)}%`,
-        "errorRate",
-        thresholds.errorRate,
-        errorRate,
-        "Check WordPress connectivity and authentication",
-      );
-    }
-
-    // Cache hit rate alert
-    if (this.metrics.cache.hitRate < thresholds.cacheHitRate) {
-      this.addAlert(
-        "warning",
-        "cache",
-        `Low cache hit rate: ${Math.round(this.metrics.cache.hitRate * 100)}%`,
-        "cacheHitRate",
-        thresholds.cacheHitRate,
-        this.metrics.cache.hitRate,
-        "Consider cache warming or adjusting TTL values",
-      );
-    }
+  /**
+   * The thresholds the current metrics breach right now. Unlike getAlerts() (a history that never expires),
+   * this clears itself when the condition recovers.
+   */
+  getActiveAlerts(): AlertCondition[] {
+    this.updateSystemMetrics();
+    return evaluateAlertConditions(this.metrics, this.config.alertThresholds);
   }
 
   /**
@@ -685,10 +874,11 @@ export class PerformanceMonitor {
   }
 
   /**
-   * Clean up old historical data
+   * Clean up old historical data. The window is inclusive, like `getHistoricalData(start)`: a snapshot exactly one
+   * retention period old is still in a request for that period.
    */
   private cleanupOldData(): void {
     const cutoff = Date.now() - this.config.retentionPeriod;
-    this.historicalData = this.historicalData.filter((data) => data.system.uptime > cutoff);
+    this.historicalData = this.historicalData.filter((data) => data.timestamp >= cutoff);
   }
 }

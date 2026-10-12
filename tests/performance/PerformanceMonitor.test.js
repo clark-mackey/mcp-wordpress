@@ -1,3 +1,4 @@
+import v8 from "v8";
 import { vi } from "vitest";
 import { PerformanceMonitor } from "@/performance/PerformanceMonitor.js";
 
@@ -81,6 +82,24 @@ describe("PerformanceMonitor", () => {
       expect(metrics.requests.averageResponseTime).toBe(300);
     });
 
+    it("should count client errors (4xx) separately so they do not inflate the error rate", () => {
+      monitor.recordRequest(100, true);
+      monitor.recordRequest(120, false, undefined, { clientError: true });
+      monitor.recordRequest(130, false, undefined, { clientError: true });
+      monitor.recordRequest(900, false);
+
+      const metrics = monitor.getMetrics();
+      expect(metrics.requests.total).toBe(4);
+      expect(metrics.requests.successful).toBe(1);
+      expect(metrics.requests.clientErrors).toBe(2);
+      // Only the server/network failure counts toward `failed` (and so toward the error rate)
+      expect(metrics.requests.failed).toBe(1);
+    });
+
+    it("should initialise clientErrors to zero", () => {
+      expect(monitor.getMetrics().requests.clientErrors).toBe(0);
+    });
+
     it("should calculate response time percentiles", () => {
       // Record multiple requests to get percentile calculations
       const responseTimes = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
@@ -146,6 +165,114 @@ describe("PerformanceMonitor", () => {
 
       const metrics = monitor.getMetrics();
       expect(metrics.tools.mostUsedTool).toBe("wp_list_posts");
+    });
+  });
+
+  describe("tool call tracking", () => {
+    it("should record tool usage without counting the call as an HTTP request", () => {
+      monitor.recordToolCall("wp_get_site_settings", 120, true);
+      monitor.recordToolCall("wp_get_site_settings", 80, false);
+      monitor.recordToolCall("wp_list_posts", 40, true);
+
+      const metrics = monitor.getMetrics();
+      expect(metrics.tools.toolUsageCount).toEqual({ wp_get_site_settings: 2, wp_list_posts: 1 });
+      expect(metrics.tools.mostUsedTool).toBe("wp_get_site_settings");
+      expect(metrics.tools.toolPerformance["wp_get_site_settings"].callCount).toBe(2);
+      expect(metrics.tools.toolPerformance["wp_get_site_settings"].successRate).toBe(0.5);
+      // Tool calls are not HTTP requests: totals and latency stats must be untouched
+      expect(metrics.requests.total).toBe(0);
+      expect(metrics.requests.averageResponseTime).toBe(0);
+    });
+  });
+
+  describe("recent tool calls", () => {
+    it("records tool, site, status, duration and, for a failure, the error code and status", () => {
+      const error = Object.assign(new Error("Sorry, you are not allowed to do that."), {
+        statusCode: 403,
+        code: "rest_forbidden",
+      });
+
+      monitor.recordToolCall("wp_list_posts", 120, true, { site: "site1" });
+      monitor.recordToolCall("wp_get_site_settings", 80, false, { site: "site2", error });
+
+      const [newest, oldest] = monitor.getRecentToolCalls();
+      expect(oldest).toMatchObject({ tool: "wp_list_posts", site: "site1", status: "ok", durationMs: 120 });
+      expect(oldest.errorCode).toBeUndefined();
+      expect(newest).toMatchObject({
+        tool: "wp_get_site_settings",
+        site: "site2",
+        status: "error",
+        durationMs: 80,
+        statusCode: 403,
+        errorCode: "rest_forbidden",
+        errorType: "Error",
+      });
+      expect(typeof newest.timestamp).toBe("number");
+    });
+
+    it("lists the newest call first and honours the limit", () => {
+      for (let i = 1; i <= 5; i++) monitor.recordToolCall(`tool_${i}`, i, true);
+
+      expect(monitor.getRecentToolCalls(3).map((c) => c.tool)).toEqual(["tool_5", "tool_4", "tool_3"]);
+    });
+
+    it("keeps only the last 50 calls", () => {
+      for (let i = 1; i <= 60; i++) monitor.recordToolCall(`tool_${i}`, 1, true);
+
+      const calls = monitor.getRecentToolCalls();
+      expect(calls).toHaveLength(50);
+      expect(calls[0].tool).toBe("tool_60");
+      expect(calls[49].tool).toBe("tool_11");
+    });
+
+    // Error text can echo the call's arguments (validation messages quote the bad value, upload errors quote the
+    // path), so it is never retained — only the HTTP status, the error code and the error's type.
+    it("never retains error text, so call arguments cannot leak through it", () => {
+      const secret = "/Users/me/private-notes.txt";
+      monitor.recordToolCall("wp_upload_media", 5, false, {
+        error: Object.assign(new Error(`File not found at path: ${secret}`), { code: "FILE_NOT_FOUND" }),
+      });
+
+      const [call] = monitor.getRecentToolCalls();
+      expect(JSON.stringify(call)).not.toContain(secret);
+      expect(call).not.toHaveProperty("error");
+      expect(call).toMatchObject({ errorCode: "FILE_NOT_FOUND", errorType: "Error" });
+      expect(Object.keys(call)).not.toContain("params");
+      expect(Object.keys(call)).not.toContain("parameters");
+    });
+
+    it("marks a failure without an error object (e.g. a result with success:false) as an error", () => {
+      monitor.recordToolCall("wp_cache_info", 5, false);
+
+      expect(monitor.getRecentToolCalls()[0]).toMatchObject({ tool: "wp_cache_info", status: "error" });
+    });
+  });
+
+  describe("system memory metrics", () => {
+    const MB = 1024 * 1024;
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    // Regression: memoryUsage used to be heapUsed/heapTotal, which sits near 100% on any healthy
+    // process because V8 only grows the heap as needed — so it read "97%" while using ~100 MB.
+    it("should report heap usage against the V8 heap limit, not the current heap size", () => {
+      vi.spyOn(process, "memoryUsage").mockReturnValue({
+        rss: 300 * MB,
+        heapTotal: 101 * MB,
+        heapUsed: 100 * MB,
+        external: 0,
+        arrayBuffers: 0,
+      });
+      vi.spyOn(v8, "getHeapStatistics").mockReturnValue({ heap_size_limit: 4000 * MB });
+
+      const { system } = monitor.getMetrics();
+
+      expect(system.memoryUsage).toBe(2.5);
+      expect(system.heapUsedMB).toBe(100);
+      expect(system.heapLimitMB).toBe(4000);
+      expect(system.rssMB).toBe(300);
     });
   });
 

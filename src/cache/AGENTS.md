@@ -21,7 +21,13 @@ Owns `src/cache/`. Consumed by `src/client/AGENTS.md` (`CachedWordPressClient`).
   `setImmediate`/deferred-tick hop) — this is a read-after-write guarantee `CachedWordPressClient`'s mutating methods
   depend on: an immediate read after an awaited write must see fresh data. Don't reintroduce deferred processing without
   adding a separately-named method for it; no current caller wants fire-and-forget invalidation.
-- `SEOCacheManager.ts` — `CacheManager` subclass with SEO-specific TTL tiers pulled from `Config`.
+- `SEOCacheManager.ts` — `CacheManager` subclass with SEO-specific TTL tiers pulled from `Config`. **SEO TTLs are
+  seconds** (`SEO_CACHE_*_TTL`, `DEFAULT_TTL`, `ttlFor()`, every SEO caller) while `CacheManager` counts milliseconds;
+  its `set()` override converts, so never pass milliseconds to it. One instance serves every site, so SEO keys come from
+  `seoResultKey()`: all call parameters (sorted, without `force`) plus, for post-based results, the post's last
+  modification. Every SEO key is `seo:<kind>:<site>:<postId or ->:...` (`getSEOCacheKey()` too), and
+  `invalidatePostSEO()`/`invalidateSiteSEO()`/`clearSEOCache()`/`getSEOCacheStats()` select entries by those segments
+  through the base cache's `keys()` — keep the site and post as segments in any new key.
 - **`get()` vs `peek()`**: `CacheManager.get()` deletes expired entries as a side effect. `peek()`
   (`CacheManager.ts:258-279`) exists so `HttpCacheWrapper` can inspect staleness without destroying the
   ETag/Last-Modified validators needed for conditional requests — use `peek()` for revalidation flows, `get()`

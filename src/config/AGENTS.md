@@ -20,10 +20,17 @@ Owns `src/config/`.
   `validateAndSanitizeUrl` (`src/client/AGENTS.md`); both call the shared helper so the two can't drift apart — don't
   reintroduce inline hostname/protocol checks in either place.
 - `ServerConfiguration.ts` — singleton consumer/orchestrator: decides single-site vs multi-site mode
-  (`loadClientConfigurations()`, `ServerConfiguration.ts:75-99`), reads `.env` via dotenv, resolves
-  `mcp-wordpress.config.json` if present, validates via `ConfigurationSchema`, and builds one
-  `WordPressClient`/`CachedWordPressClient` per site. **Fails startup loudly on invalid config — no silent fallback.**
-  Does not define its own validation rules.
+  (`loadClientConfigurations()`), reads `.env` via dotenv, resolves the multi-site file via
+  `resolveMultiSiteConfigFile()` (first existing wins: `MCP_WORDPRESS_CONFIG` → `~/.config/mcp-wordpress/config.json` →
+  `~/mcp-wordpress.config.json` → `<rootDir>/mcp-wordpress.config.json`; the DXT install dir is replaced on every
+  update, so the user-level locations must stay ahead of it; an explicit `MCP_WORDPRESS_CONFIG` that is missing is
+  fatal, and an empty/unresolved `${user_config.*}` value counts as unset), validates via `ConfigurationSchema`, and
+  builds one `WordPressClient`/`CachedWordPressClient` per site. **Fails startup loudly on invalid config — no silent
+  fallback.** Outside CI/test, any resolved multi-site file (including an explicit `MCP_WORDPRESS_CONFIG`) also needs
+  `MCP_WORDPRESS_ALLOW_MULTI_SITE=true` or startup throws; the DXT manifest exposes both as `user_config` settings.
+  After each load `getLoadInfo()` records the mode, the loaded file and its source, the site IDs and (single-site) the
+  paths searched; `wp_test_auth` reports it, because the host does not capture an installed extension's stderr. Does not
+  define its own validation rules.
 - `Config.ts` — singleton reading `process.env` into a typed `AppConfig`; exports `ConfigHelpers`.
 
 **Config files are never committed**: `mcp-wordpress.config.json` and `.env` are gitignored. Any example/test config
