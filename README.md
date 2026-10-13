@@ -366,6 +366,10 @@ For the full history see [CHANGELOG.md](CHANGELOG.md).
 Special thanks to **[Stephan Ferraro](https://github.com/ferraro)** for the upstream project that inspired this
 implementation.
 
+This copy is a fork of [docdyhr/mcp-wordpress](https://github.com/docdyhr/mcp-wordpress), extended by
+[Clark Mackey](https://github.com/clark-mackey): login header fallback for hosts that strip `Authorization`, workshop
+setup (`npm run connect`), and upstream merges.
+
 ---
 
 <div align="center">
