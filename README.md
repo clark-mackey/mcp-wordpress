@@ -137,6 +137,30 @@ npm run setup
 - 🐳 **[Docker Setup](docs/user-guides/DOCKER_SETUP.md)** - Production deployment
 - 🔧 **[Manual Build](docs/developer/BUILD_SYSTEM.md)** - Custom builds
 
+## Hosted HTTP mode
+
+Stdio remains the default. Set `MCP_TRANSPORT=http` to serve stateless MCP requests at `/mcp` and a local health
+response at `/healthz`. Hosted mode requires `PUBLIC_BASE_URL` (an HTTPS origin with no path), hosted authentication
+settings, and WordPress site configuration. `PORT` defaults to `3000`; startup skips WordPress connection probes.
+`MCP_WORDPRESS_CONFIG_JSON` accepts the existing multi-site JSON shape directly in memory, before file sources; set
+`MCP_WORDPRESS_ALLOW_MULTI_SITE=true` to enable it. No configuration is written to disk.
+
+Hosted mode always hides administrative tools and applies each authenticated principal's tool grant. It permits four
+concurrent tool calls per principal, rejects local `file_path` uploads, and drains requests for up to 25 seconds on
+shutdown. URL uploads are not available yet. Authentication is supplied by `src/server/http/auth/index.js` through the
+[hosted interface](src/server/http/contract.ts); that module must be present before HTTP startup.
+
+For Railway, use `railway.toml` and set `MCP_TRANSPORT=http` plus required settings in service variables. Railway's
+service config does not define environment variables. The file requests one replica, zero overlap, and a 25-second
+drain. Railway activates the replacement before draining the previous deployment, so zero overlap does not guarantee
+that two processes never run simultaneously during deployment. See
+[deployment teardown](https://docs.railway.com/deployments/deployment-teardown).
+
+Railway's default probe uses `Host: healthcheck.railway.app`, which the required `PUBLIC_BASE_URL`-only Host policy
+rejects. Consequently the configured Railway healthcheck cannot pass with that default probe. Resolve this deployment
+policy conflict before deploying; the app does not add a host exception. See
+[healthcheck hostname](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname).
+
 ## 📋 Configuration
 
 **Single Site (.env)**

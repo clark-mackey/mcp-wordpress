@@ -233,6 +233,11 @@ export class MediaTools {
   public async handleUploadMedia(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     const uploadParams = toolParams<UploadMediaRequest & { file_path: string }>(params);
     try {
+      if (process.env.MCP_TRANSPORT === "http") {
+        throw new Error(
+          "file_path uploads are disabled in hosted HTTP mode. Use the local stdio install for local files.",
+        );
+      }
       // Local uploads are disabled unless MCP_UPLOAD_BASE_DIR is explicitly set to an
       // existing directory. validateFilePath enforces containment via realpath, rejects
       // symlinks/non-regular files, and confirms the file exists.

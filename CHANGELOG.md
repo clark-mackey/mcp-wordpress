@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Optional hosted HTTP transport with authenticated, grant-filtered tools, health checks, per-principal concurrency
+  limits, in-memory site configuration, graceful shutdown, and Railway service settings. Hosted local file uploads are
+  refused; stdio stays the default. The hosted authentication module is supplied separately.
+
 ## [4.1.6](https://github.com/docdyhr/mcp-wordpress/compare/v4.1.5...v4.1.6) (2026-10-12)
 
 ### 🐛 Bug Fixes

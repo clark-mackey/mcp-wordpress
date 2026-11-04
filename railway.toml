@@ -1,0 +1,13 @@
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+# Set MCP_TRANSPORT=http and the required hosted settings in service variables.
+startCommand = "node dist/index.js"
+numReplicas = 1
+# Default Railway probe Host conflicts with the single-public-host policy; see README.
+healthcheckPath = "/healthz"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+overlapSeconds = 0
+drainingSeconds = 25

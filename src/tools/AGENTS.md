@@ -127,6 +127,9 @@ post's last modification is part of the key (contract: `src/cache/AGENTS.md`).
 by the server for later tool invocations. When validating alternate credentials, verify them with an isolated throwaway
 client and leave the shared client/config/cache untouched.
 
+**Hosted media uploads**: when `MCP_TRANSPORT=http`, `wp_upload_media` refuses `file_path` before filesystem
+validation/access; local file uploads remain available in stdio mode.
+
 **Performance and cache output** (`performance/`, `cache.ts`): scope labels, hit-rate formatting, history windows and
 alert-number rounding are contracts in `src/performance/AGENTS.md` — read it before editing these files.
 
