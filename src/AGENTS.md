@@ -50,3 +50,5 @@ npm run lint         # eslint src/ tests/
 - `src/security/AGENTS.md` — input validation + AI-assisted security scanning pipeline
 - `src/performance/AGENTS.md` — metrics collection and analytics
 - `src/config/AGENTS.md` — single-site vs multi-site configuration loading
+
+- `src/server/http/auth/AGENTS.md` — hosted principal validation, signed OAuth provider, passcode form and bearer checks

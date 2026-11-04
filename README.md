@@ -177,6 +177,9 @@ WordPress Application Passwords are recommended:
 Alternative methods: JWT, Basic Auth, API Key — see
 **[Authentication Configuration](docs/CONFIGURATION.md#authentication-configuration)**
 
+Hosted authentication integration and operator settings are documented in [Hosted authentication](docs/HOSTED_AUTH.md).
+Generate a new hosted passcode with `npm run passcode`.
+
 ## 🌟 What Makes This Special
 
 | Feature                    | This Server                        | Competition     |

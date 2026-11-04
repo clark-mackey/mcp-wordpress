@@ -3,7 +3,7 @@
 ## Purpose
 
 Operational scripts: release/publishing, auth debugging, health checks, docs generation, CI/dev helpers. Flat directory,
-73 files (`.js`/`.cjs`/`.sh`/`.py`/`.ts`/`.mjs`/`.php`).
+74 files (`.js`/`.cjs`/`.sh`/`.py`/`.ts`/`.mjs`/`.php`).
 
 ## Ownership
 
@@ -16,6 +16,7 @@ Owns `scripts/`. Not all files here are load-bearing — see Local Contracts.
 | npm script                                       | scripts file                                                                                       |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | `fix:rest-auth`                                  | `fix-rest-api-auth.sh`                                                                             |
+| `passcode`                                       | `passcode.js` (prints one newly generated hosted passcode; does not persist it)                    |
 | `health`                                         | `health-check.js`                                                                                  |
 | `security:scan`                                  | `security-audit-gate.js` (blocking production `npm audit` gate against `security-exceptions.json`) |
 | `security:demo`                                  | `security-demo.js` (AI security-scanner demo — informational only, not a gate)                     |

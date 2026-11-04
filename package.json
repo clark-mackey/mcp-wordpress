@@ -62,6 +62,7 @@
     "lint:fix": "eslint src/ tests/ --fix",
     "lint:md": "markdownlint \"*.md\" \"docs/**/*.md\"",
     "lint:md:fix": "markdownlint \"*.md\" \"docs/**/*.md\" --fix",
+    "passcode": "node scripts/passcode.js",
     "pre-commit": "lint-staged",
     "prepare": "husky",
     "prepublishOnly": "npm run build && npm run check:ignore",

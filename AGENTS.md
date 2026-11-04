@@ -233,4 +233,4 @@ When the user requests a durable behavior change, record it here or in the relev
 - `src/AGENTS.md` — source-wide TypeScript/ESLint conventions, composition-pattern DI, logger usage; indexes its own
   children
 - `tests/AGENTS.md` — Vitest configs, coverage thresholds, test-against-dist convention
-- `scripts/AGENTS.md` — 73 operational scripts (release, auth-fix, health, docker, CI helpers); flags destructive ones
+- `scripts/AGENTS.md` — 74 operational scripts (release, auth-fix, health, docker, CI helpers); flags destructive ones
