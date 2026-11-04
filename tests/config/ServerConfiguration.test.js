@@ -538,3 +538,54 @@ describe("ServerConfiguration multi-site production guard", () => {
     expect(result.configs[0].id).toBe("site1");
   });
 });
+
+describe("ServerConfiguration default site", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    Config.reset();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDotenvConfig.mockReturnValue({});
+    mockAccess.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValue(JSON.stringify(VALID_MULTI_SITE_CONFIG));
+    vi.stubEnv("MCP_WORDPRESS_CONFIG", undefined);
+    vi.stubEnv("MCP_WORDPRESS_DEFAULT_SITE", "site1");
+  });
+
+  it("accepts a configured default", async () => {
+    const result = await ServerConfiguration.getInstance().loadClientConfigurations();
+    expect(result.clients.has("site1")).toBe(true);
+  });
+
+  it("fails startup for an unknown default and lists configured IDs", async () => {
+    vi.stubEnv("MCP_WORDPRESS_DEFAULT_SITE", "missing");
+    await expect(ServerConfiguration.getInstance().loadClientConfigurations()).rejects.toThrow(
+      /MCP_WORDPRESS_DEFAULT_SITE.*missing.*Configured site IDs: site1/,
+    );
+  });
+
+  it.each([undefined, "true"])("preserves the production multi-site opt-in (%s)", async (optIn) => {
+    vi.stubEnv("NODE_ENV", "production");
+    for (const key of ["CI", "GITHUB_ACTIONS", "TRAVIS", "CIRCLECI"]) vi.stubEnv(key, undefined);
+    vi.stubEnv("MCP_WORDPRESS_ALLOW_MULTI_SITE", optIn);
+    Config.reset();
+    const load = ServerConfiguration.getInstance().loadClientConfigurations();
+    if (optIn === "true") {
+      expect((await load).clients.has("site1")).toBe(true);
+    } else {
+      await expect(load).rejects.toThrow(/MCP_WORDPRESS_ALLOW_MULTI_SITE/);
+    }
+  });
+
+  it("rejects an unknown default even in single-site mode", async () => {
+    mockAccess.mockRejectedValue(enoent());
+    vi.stubEnv("WORDPRESS_SITE_URL", "https://example.com");
+    vi.stubEnv("WORDPRESS_USERNAME", "testuser");
+    vi.stubEnv("WORDPRESS_APP_PASSWORD", "testpass123");
+    await expect(ServerConfiguration.getInstance().loadClientConfigurations()).rejects.toThrow(
+      /MCP_WORDPRESS_DEFAULT_SITE.*site1.*Configured site IDs: default/,
+    );
+  });
+});

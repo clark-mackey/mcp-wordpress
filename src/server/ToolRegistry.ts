@@ -6,6 +6,7 @@ import { getErrorMessage } from "@/utils/error.js";
 import { EnhancedError, ErrorHandlers } from "@/utils/enhancedError.js";
 import * as Tools from "@/tools/index.js";
 import { z } from "zod";
+import { ConfigurationValidator } from "@/config/ConfigurationSchema.js";
 import type { MCPToolSchema, JSONSchemaProperty } from "@/types/mcp.js";
 import { isUnsafePlainText, isUnsafeWordPressContent } from "@/security/InputValidator.js";
 import { LOCAL_FILE_ACCESS_ERROR_CODES } from "@/utils/validation/security.js";
@@ -76,10 +77,14 @@ export class ToolRegistry {
   // Read at call time (not captured at registration) because PerformanceTools may be instantiated
   // after the tools that are registered before it.
   private toolExecutionTracker: ToolExecutionTracker | undefined;
+  private readonly defaultSiteId: string | undefined;
 
   constructor(server: McpServer, wordpressClients: Map<string, WordPressClient>) {
     this.server = server;
     this.wordpressClients = wordpressClients;
+    this.defaultSiteId = ConfigurationValidator.validateDefaultSite(process.env.MCP_WORDPRESS_DEFAULT_SITE, [
+      ...wordpressClients.keys(),
+    ]);
   }
 
   /**
@@ -135,16 +140,12 @@ export class ToolRegistry {
    * Register a single tool with parameter validation and execution handling
    */
   private registerTool(tool: ToolDefinition): void {
-    // In multi-site mode, `site` must be a genuinely required Zod field so
-    // the SDK's own argument validation rejects an omitted `site` before
-    // the handler ever runs — a manual in-handler check alone would let an
-    // invalid call reach the handler and only fail (or worse, silently
-    // pick a site) from inside application code.
-    const isMultiSite = this.wordpressClients.size > 1;
-    const siteDescription = isMultiSite
-      ? "The ID of the WordPress site to target (from mcp-wordpress.config.json). Required when multiple sites are configured."
-      : "The ID of the WordPress site to target (from mcp-wordpress.config.json). Required if multiple sites are configured.";
-    const siteSchema = isMultiSite
+    // Multiple sites require an explicit target unless a validated default is configured.
+    const siteRequired = this.wordpressClients.size > 1 && this.defaultSiteId === undefined;
+    const siteDescription = this.defaultSiteId
+      ? `Site ID; defaults to "${this.defaultSiteId}" when omitted.`
+      : "Site ID; required with multiple sites.";
+    const siteSchema = siteRequired
       ? z.string().describe(siteDescription)
       : z.string().optional().describe(siteDescription);
 
@@ -171,7 +172,7 @@ export class ToolRegistry {
         let failure: Error | undefined;
         // Declared outside the try so the catch can name the site that was actually resolved
         // (selectBestSite() may pick a configured ID other than "default" when `site` is omitted).
-        let siteId = args.site;
+        let siteId = args.site ?? this.defaultSiteId;
         try {
           // If no site specified and multiple sites configured, require site parameter
           if (!siteId && this.wordpressClients.size > 1) {
@@ -300,18 +301,16 @@ export class ToolRegistry {
    * is replaced by a single pre-computed snapshot.
    */
   private buildCachedInputSchema(tool: ToolDefinition): Record<string, unknown> {
-    const isMultiSite = this.wordpressClients.size > 1;
-    const siteDescription = isMultiSite
-      ? "The ID of the WordPress site to target (from mcp-wordpress.config.json). Required when multiple sites are configured."
-      : "The ID of the WordPress site to target (from mcp-wordpress.config.json). Required if multiple sites are configured.";
+    const siteRequired = this.wordpressClients.size > 1 && this.defaultSiteId === undefined;
+    const siteDescription = this.defaultSiteId
+      ? `Site ID; defaults to "${this.defaultSiteId}" when omitted.`
+      : "Site ID; required with multiple sites.";
 
     const properties: Record<string, unknown> = {
       site: { type: "string", description: siteDescription },
     };
-    // Kept in sync with registerTool()'s Zod schema: `site` is only a
-    // genuinely required Zod field in multi-site mode, so the advertised
-    // JSON Schema must say the same thing here.
-    const required: string[] = isMultiSite ? ["site"] : [];
+    // Match the live Zod schema in registerTool().
+    const required: string[] = siteRequired ? ["site"] : [];
 
     if (tool.inputSchema) {
       Object.assign(properties, tool.inputSchema.properties || {});
