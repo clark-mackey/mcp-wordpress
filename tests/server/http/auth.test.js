@@ -221,7 +221,11 @@ describe("hosted auth edge cases", () => {
       "statistical entropy audit",
     ),
     () => {
-      const generated = execFileSync(process.execPath, ["scripts/passcode.js"], { encoding: "utf8" }).trim();
+      const generated = execFileSync(
+        process.execPath,
+        [new URL("../../../scripts/passcode.js", import.meta.url).pathname],
+        { encoding: "utf8" },
+      ).trim();
       expect(/^[A-Za-z0-9_-]{43}$/.test(generated)).toBe(true);
       expect(Buffer.from(generated, "base64url").length).toBe(32);
     },

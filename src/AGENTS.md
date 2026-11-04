@@ -44,6 +44,7 @@ npm run lint         # eslint src/ tests/
 
 ## Child DOX Index
 
+- `src/server/http/AGENTS.md` — hosted HTTP lifecycle, authorization filtering, transport/auth contract
 - `src/tools/AGENTS.md` — tool anatomy, registration contract, 12-category map
 - `src/client/AGENTS.md` — WordPressClient composition, auth methods, request pipeline
 - `src/cache/AGENTS.md` — CacheManager / HttpCacheWrapper / invalidation

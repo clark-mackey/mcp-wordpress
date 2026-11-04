@@ -21,6 +21,11 @@ const WORDPRESS_CONTENT_PARAM_NAMES = new Set(["content", "excerpt", "old_string
 /**
  * Interface for tool definition
  */
+export interface ToolExecutionHooks {
+  start(): void;
+  end(): void;
+}
+
 export interface ToolDefinition {
   name: string;
   description?: string;
@@ -87,13 +92,19 @@ export class ToolRegistry {
   // Exposed for tests that assert presence of these fields
   public server: McpServer;
   public wordpressClients: Map<string, WordPressClient>;
-  private _cachedToolsListResponse: { tools: unknown[] } | null = null;
+  private _cachedToolsListResponse: { tools: unknown[] } = { tools: [] };
+  private definitions: ToolDefinition[] = [];
+  private registrations: Array<(server: McpServer, execution?: ToolExecutionHooks) => void> = [];
   // Read at call time (not captured at registration) because PerformanceTools may be instantiated
   // after the tools that are registered before it.
   private toolExecutionTracker: ToolExecutionTracker | undefined;
   private readonly defaultSiteId: string | undefined;
 
-  constructor(server: McpServer, wordpressClients: Map<string, WordPressClient>) {
+  constructor(
+    server: McpServer,
+    wordpressClients: Map<string, WordPressClient>,
+    private readonly toolFilter?: ((toolName: string) => boolean) | undefined,
+  ) {
     this.server = server;
     this.wordpressClients = wordpressClients;
     this.defaultSiteId = ConfigurationValidator.validateDefaultSite(process.env.MCP_WORDPRESS_DEFAULT_SITE, [
@@ -104,7 +115,12 @@ export class ToolRegistry {
   /**
    * Register all available tools with the MCP server
    */
-  public registerAllTools(): void {
+  public registerAllTools(definitions?: readonly ToolDefinition[]): void {
+    if (definitions) {
+      for (const tool of definitions) this.registerTool(tool);
+      this.installCachedToolsListHandler();
+      return;
+    }
     // Register all tools from the tools directory
     Object.values(Tools).forEach((ToolClass) => {
       let toolInstance: { getTools(): unknown[] };
@@ -138,22 +154,39 @@ export class ToolRegistry {
     this.toolExecutionTracker = tracker;
   }
 
-  /**
-   * Build and install a cached tools/list handler, bypassing the SDK's per-request
-   * Zod→JSON-Schema conversion for all 90 tools.
-   */
-  private installCachedToolsListHandler(): void {
-    if (!this._cachedToolsListResponse) return;
+  /** Reuse tool objects and metrics while preparing a grant's schemas and list once. */
+  public createFiltered(server: McpServer, filter: (name: string) => boolean): ToolRegistry {
+    const registry = new ToolRegistry(server, this.wordpressClients, filter);
+    registry.setMetricsCollector(this.toolExecutionTracker);
+    registry.registerAllTools(this.definitions);
+    return registry;
+  }
+
+  /** Attach prebuilt schemas, handlers and list data to a fresh request server. */
+  public attachTo(server: McpServer, execution?: ToolExecutionHooks): void {
+    for (const register of this.registrations) register(server, execution);
+    this.installCachedToolsListHandler(server);
+  }
+
+  public getToolNames(): string[] {
+    return this._cachedToolsListResponse.tools.map((tool) => (tool as { name: string }).name);
+  }
+
+  /** Bypass per-request SDK schema conversion, including for an empty grant. */
+  private installCachedToolsListHandler(server = this.server): void {
+    if (this.registrations.length === 0) server.server.registerCapabilities({ tools: { listChanged: true } });
     const cachedResponse = this._cachedToolsListResponse;
     // Replace the MCP SDK's tools/list handler (which re-converts Zod schemas on
     // every request) with one that returns the pre-built JSON Schema response.
-    this.server.server.setRequestHandler(ListToolsRequestSchema, () => cachedResponse);
+    server.server.setRequestHandler(ListToolsRequestSchema, () => cachedResponse);
   }
 
   /**
    * Register a single tool with parameter validation and execution handling
    */
   private registerTool(tool: ToolDefinition): void {
+    this.definitions.push(tool);
+    if (this.toolFilter && !this.toolFilter(tool.name)) return;
     // Multiple sites require an explicit target unless a validated default is configured.
     const siteRequired = this.wordpressClients.size > 1 && this.defaultSiteId === undefined;
     const siteDescription = this.defaultSiteId
@@ -178,139 +211,147 @@ export class ToolRegistry {
           : undefined,
     });
 
-    this.server.registerTool(
-      tool.name,
-      { description: tool.description || `WordPress tool: ${tool.name}`, inputSchema },
-      async (args: Record<string, unknown>) => {
-        // Track from entry so every dispatched call is counted, including ones that fail before the handler
-        // runs (unknown site, missing `site`). `succeeded` flips only when the handler returns a good result;
-        // every other exit — early error returns and the catch below — is recorded as a failure.
-        const tracker = this.toolExecutionTracker;
-        const executionId = tracker?.startToolExecution(
-          tool.name,
-          args,
-          typeof args.site === "string" ? args.site : undefined,
-        );
-        let succeeded = false;
-        let failure: Error | undefined;
-        // Declared outside the try so the catch can name the site that was actually resolved
-        // (selectBestSite() may pick a configured ID other than "default" when `site` is omitted).
-        let siteId = args.site ?? this.defaultSiteId;
-        try {
-          // If no site specified and multiple sites configured, require site parameter
-          if (!siteId && this.wordpressClients.size > 1) {
-            const availableSites = Array.from(this.wordpressClients.keys());
-            failure = codedFailure("site_required", "site parameter required");
-            const error = ErrorHandlers.siteParameterMissing(availableSites);
+    const register = (server: McpServer, execution?: ToolExecutionHooks) =>
+      server.registerTool(
+        tool.name,
+        { description: tool.description || `WordPress tool: ${tool.name}`, inputSchema },
+        async (args: Record<string, unknown>) => {
+          execution?.start();
+          // Track from entry so every dispatched call is counted, including ones that fail before the handler
+          // runs (unknown site, missing `site`). `succeeded` flips only when the handler returns a good result;
+          // every other exit — early error returns and the catch below — is recorded as a failure.
+          const tracker = this.toolExecutionTracker;
+          const executionId = tracker?.startToolExecution(
+            tool.name,
+            args,
+            typeof args.site === "string" ? args.site : undefined,
+          );
+          let succeeded = false;
+          let failure: Error | undefined;
+          // Declared outside the try so the catch can name the site that was actually resolved
+          // (selectBestSite() may pick a configured ID other than "default" when `site` is omitted).
+          let siteId = args.site ?? this.defaultSiteId;
+          try {
+            // If no site specified and multiple sites configured, require site parameter
+            if (!siteId && this.wordpressClients.size > 1) {
+              const availableSites = Array.from(this.wordpressClients.keys());
+              failure = codedFailure("site_required", "site parameter required");
+              const error = ErrorHandlers.siteParameterMissing(availableSites);
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: error.toString(),
+                  },
+                ],
+                isError: true,
+              };
+            }
+
+            // Auto-select the only site in single-site configurations.
+            if (!siteId) {
+              siteId = this.selectBestSite();
+            }
+
+            const client = this.wordpressClients.get(siteId as string);
+
+            if (!client) {
+              const availableSites = Array.from(this.wordpressClients.keys());
+              failure = codedFailure("site_not_found", "site not found");
+              const error = ErrorHandlers.siteNotFound(siteId as string, availableSites);
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: error.toString(),
+                  },
+                ],
+                isError: true,
+              };
+            }
+
+            // Call the tool handler with the client and parameters
+            const result = await tool.handler(client, args);
+            succeeded = !isFailedToolResult(result);
+            if (!succeeded) {
+              failure = codedFailure("tool_reported_failure", "tool reported a failure");
+            }
+
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: error.toString(),
+                  text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
                 },
               ],
-              isError: true,
             };
-          }
+          } catch (_error) {
+            failure = _error instanceof Error ? _error : undefined;
+            if (this.isAuthenticationError(_error)) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run connect again, which detects this and names the fix.`,
+                  },
+                ],
+                isError: true,
+              };
+            }
 
-          // Auto-select the only site in single-site configurations.
-          if (!siteId) {
-            siteId = this.selectBestSite();
-          }
+            if (this.isPermissionDeniedError(_error)) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: this.formatPermissionDenied(tool, String(siteId || "default"), _error),
+                  },
+                ],
+                isError: true,
+              };
+            }
 
-          const client = this.wordpressClients.get(siteId as string);
+            // Handle enhanced errors with suggestions
+            if (_error instanceof EnhancedError) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: _error.toString(),
+                  },
+                ],
+                isError: true,
+              };
+            }
 
-          if (!client) {
-            const availableSites = Array.from(this.wordpressClients.keys());
-            failure = codedFailure("site_not_found", "site not found");
-            const error = ErrorHandlers.siteNotFound(siteId as string, availableSites);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: error.toString(),
+                  text: `Error: ${getErrorMessage(_error)}`,
                 },
               ],
               isError: true,
             };
+          } finally {
+            execution?.end();
+            if (tracker && executionId !== undefined) {
+              tracker.endToolExecution(
+                executionId,
+                succeeded,
+                failure,
+                typeof siteId === "string" ? siteId : undefined,
+              );
+            }
           }
+        },
+      );
 
-          // Call the tool handler with the client and parameters
-          const result = await tool.handler(client, args);
-          succeeded = !isFailedToolResult(result);
-          if (!succeeded) {
-            failure = codedFailure("tool_reported_failure", "tool reported a failure");
-          }
-
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (_error) {
-          failure = _error instanceof Error ? _error : undefined;
-          if (this.isAuthenticationError(_error)) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run connect again, which detects this and names the fix.`,
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          if (this.isPermissionDeniedError(_error)) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: this.formatPermissionDenied(tool, String(siteId || "default"), _error),
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          // Handle enhanced errors with suggestions
-          if (_error instanceof EnhancedError) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: _error.toString(),
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error: ${getErrorMessage(_error)}`,
-              },
-            ],
-            isError: true,
-          };
-        } finally {
-          if (tracker && executionId !== undefined) {
-            tracker.endToolExecution(executionId, succeeded, failure, typeof siteId === "string" ? siteId : undefined);
-          }
-        }
-      },
-    );
+    this.registrations.push(register);
+    register(this.server);
 
     // Accumulate into the tools/list cache (built in JSON Schema format so we can
     // avoid per-request Zod→JSON-Schema conversion once all tools are registered).
-    if (!this._cachedToolsListResponse) {
-      this._cachedToolsListResponse = { tools: [] };
-    }
     this._cachedToolsListResponse.tools.push({
       name: tool.name,
       description: tool.description || `WordPress tool: ${tool.name}`,

@@ -102,6 +102,21 @@ export class ServerConfiguration {
     clients: Map<string, WordPressClient>;
     configs: SiteConfig[];
   }> {
+    if (process.env.MCP_TRANSPORT === "http" && process.env.MCP_WORDPRESS_CONFIG_JSON !== undefined) {
+      const configLabel = "MCP_WORDPRESS_CONFIG_JSON";
+      if (!ConfigHelpers.isCI() && !ConfigHelpers.isTest() && process.env.MCP_WORDPRESS_ALLOW_MULTI_SITE !== "true") {
+        throw new Error("MCP_WORDPRESS_CONFIG_JSON requires MCP_WORDPRESS_ALLOW_MULTI_SITE=true.");
+      }
+      const multiSite = await this.loadMultiSiteConfig(configLabel, "env", process.env.MCP_WORDPRESS_CONFIG_JSON);
+      ConfigurationValidator.validateDefaultSite(process.env.MCP_WORDPRESS_DEFAULT_SITE, [...multiSite.clients.keys()]);
+      this.loadInfo = {
+        mode: "multi-site",
+        configPath: configLabel,
+        source: "env",
+        siteIds: multiSite.configs.map((site) => site.id),
+      };
+      return multiSite;
+    }
     const { resolved, searched } = await this.resolveMultiSiteConfigFile();
     if (!resolved) {
       // Opting in to multi-site and then finding no file is almost certainly a misconfiguration (the original
@@ -280,12 +295,13 @@ export class ServerConfiguration {
   private async loadMultiSiteConfig(
     configPath: string,
     source: ConfigFileSource,
+    rawJson?: string,
   ): Promise<{
     clients: Map<string, WordPressClient>;
     configs: SiteConfig[];
   }> {
     try {
-      const configFile = await fsPromises.readFile(configPath, "utf-8");
+      const configFile = rawJson ?? (await fsPromises.readFile(configPath, "utf-8"));
       const rawConfig = JSON.parse(configFile);
 
       // Validate configuration using Zod schema

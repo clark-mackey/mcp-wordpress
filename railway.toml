@@ -1,0 +1,13 @@
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+# Set MCP_TRANSPORT=http and the required hosted settings in service variables.
+startCommand = "node dist/index.js"
+numReplicas = 1
+# /healthz answers any Host (Railway probes with its own); every other route is locked to PUBLIC_BASE_URL.
+healthcheckPath = "/healthz"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+overlapSeconds = 0
+drainingSeconds = 25

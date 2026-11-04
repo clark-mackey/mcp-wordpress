@@ -1,3 +1,6 @@
+import type { Server as HttpServer } from "node:http";
+import { createHostedApp } from "./server/http/app.js";
+import { getTransport, getHostedConfiguration, loadHostedAuth, drainHostedServer } from "./server/http/runtime.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { fileURLToPath } from "url";
@@ -16,6 +19,7 @@ import { getVersion, getDisplayVersion } from "./utils/version.js";
 class MCPWordPressServer {
   private server: McpServer;
   private wordpressClients: Map<string, WordPressClient> = new Map();
+  private httpServer: HttpServer | undefined;
   private initialized: boolean = false;
   private siteConfigs: SiteConfig[] = [];
   private toolRegistry!: ToolRegistry;
@@ -51,6 +55,8 @@ class MCPWordPressServer {
   }
 
   async run() {
+    const transportMode = getTransport();
+    const hostedConfig = transportMode === "http" ? getHostedConfiguration() : undefined;
     // Load configuration asynchronously
     await this.loadConfiguration(this.mcpConfig);
 
@@ -64,6 +70,26 @@ class MCPWordPressServer {
 
     this.toolRegistry = new ToolRegistry(this.server, this.wordpressClients);
     this.setupTools();
+
+    if (hostedConfig) {
+      const auth = await loadHostedAuth({
+        publicBaseUrl: hostedConfig.publicBaseUrl,
+        env: process.env,
+        knownToolNames: this.toolRegistry.getToolNames(),
+      });
+      const app = createHostedApp({
+        ...hostedConfig,
+        auth,
+        wordpressClients: this.wordpressClients,
+        toolRegistry: this.toolRegistry,
+      });
+      this.httpServer = await new Promise<HttpServer>((resolve, reject) => {
+        const listener = app.listen(hostedConfig.port, () => resolve(listener));
+        listener.once("error", reject);
+      });
+      this.logger.info("Hosted MCP server started", { port: hostedConfig.port, sites: this.wordpressClients.size });
+      return;
+    }
 
     // Skip connection testing in DXT environment to prevent timeouts
     // process.argv[1] is the entry script path (e.g. dist/dxt-entry.js), not argv[0] which is the node binary
@@ -124,6 +150,7 @@ class MCPWordPressServer {
 
   async shutdown() {
     this.logger.info("Shutting down MCP WordPress Server...");
+    if (this.httpServer) await drainHostedServer(this.httpServer);
     await this.server.close();
     this.logger.info("Server stopped");
   }
