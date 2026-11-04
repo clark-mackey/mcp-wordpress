@@ -223,7 +223,7 @@ One JSON line per tool call to stdout (Railway keeps it with the service logs):
   "ts": "2026-11-04T18:02:11.512Z",
   "principal": "editor",
   "tool": "wp_edit_content",
-  "site": "kirby",
+  "site": "site1",
   "target": "page:123",
   "ok": true,
   "ms": 842,
