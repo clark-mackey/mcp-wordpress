@@ -5,7 +5,13 @@ import { CreatePageRequest, PostQueryParams as PageQueryParams, UpdatePageReques
 import { isPermissionError, preserveToolError } from "@/utils/error.js";
 import { isUnsafeWordPressContent } from "@/security/InputValidator.js";
 import { displayTitle, htmlToPlainText } from "@/utils/htmlText.js";
-import { formatModified } from "./format.js";
+import {
+  CONTENT_VIEW_PROPERTIES,
+  ContentViewOptions,
+  contentView,
+  formatModified,
+  wantsContentView,
+} from "./format.js";
 import { parseId, parseIdAndForce, toolParams } from "./params.js";
 
 /**
@@ -50,7 +56,10 @@ export class PageTools {
       },
       {
         name: "wp_get_page",
-        description: "Retrieves a single page by its ID, optionally including full content for editing.",
+        description:
+          "Retrieves a single page by its ID, optionally including its content as raw source for editing. " +
+          "Pages can be tens of thousands of characters: to change part of one, read just that part with `find` " +
+          "and change it with wp_edit_content.",
         inputSchema: {
           type: "object",
           properties: {
@@ -63,6 +72,7 @@ export class PageTools {
               description:
                 "If true, includes the full page content as raw source (context=edit), preserving Gutenberg block markup for editing. Default: false",
             },
+            ...CONTENT_VIEW_PROPERTIES,
           },
           required: ["id"],
         },
@@ -180,7 +190,8 @@ export class PageTools {
 
   public async handleGetPage(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     const id = parseId(params);
-    const { include_content = false } = params as { include_content?: boolean };
+    const view = toolParams<ContentViewOptions & { include_content?: boolean }>(params);
+    const include_content = view.include_content === true || wantsContentView(view);
     try {
       let page;
       if (include_content) {
@@ -204,7 +215,8 @@ export class PageTools {
         `- **Date:** ${new Date(page.date).toLocaleString()}`;
 
       if (include_content) {
-        content += `\n\n**Content:**\n\n` + `${(page.content.raw ?? page.content.rendered) || "(empty)"}`;
+        content +=
+          `\n\n**Content:**\n\n` + `${contentView(page.content.raw ?? page.content.rendered ?? "", view) || "(empty)"}`;
       }
 
       return content;

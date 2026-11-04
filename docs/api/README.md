@@ -7,10 +7,10 @@
 
 ## Overview
 
-The WordPress MCP Server provides **88 tools** across **15 categories** for comprehensive WordPress management through
+The WordPress MCP Server provides **90 tools** across **17 categories** for comprehensive WordPress management through
 the Model Context Protocol.
 
-**Last Updated:** 10/10/2026 **Version:** 1.2.0 **Coverage:** 88/88 tools with examples
+**Last Updated:** 10/10/2026 **Version:** 1.2.0 **Coverage:** 88/90 tools with examples
 
 ## Quick Start
 

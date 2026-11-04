@@ -274,6 +274,19 @@ export class ConfigurationValidator {
     }
   }
 
+  /** Validate the optional default against the sites loaded for this process. */
+  static validateDefaultSite(rawDefaultSite: string | undefined, siteIds: string[]): string | undefined {
+    // A blank value (MCP_WORDPRESS_DEFAULT_SITE=) means no default, not a site named "".
+    const defaultSite = rawDefaultSite?.trim() || undefined;
+    return z
+      .string()
+      .optional()
+      .refine((id) => id === undefined || siteIds.includes(id), {
+        message: `MCP_WORDPRESS_DEFAULT_SITE "${defaultSite}" is not configured. Configured site IDs: ${siteIds.join(", ") || "(none)"}`,
+      })
+      .parse(defaultSite);
+  }
+
   /**
    * Validate environment configuration for single-site mode
    */

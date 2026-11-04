@@ -7,6 +7,7 @@
  */
 
 import type { MCPTool } from "@/types/mcp.js";
+import { CONTENT_VIEW_PROPERTIES } from "../format.js";
 
 /**
  * Tool definition for listing WordPress posts
@@ -62,10 +63,8 @@ export const listPostsTool: MCPTool = {
 export const getPostTool: MCPTool = {
   name: "wp_get_post",
   description:
-    "Retrieves detailed information about a single post including metadata, content statistics, and management links. Optionally includes full HTML content for editing.\n\n" +
-    "**Usage Examples:**\n" +
-    "• Basic metadata: `wp_get_post --id=123`\n" +
-    "• With full content: `wp_get_post --id=123 --include_content=true`",
+    "Retrieves a single post's metadata, word count and management links, and by default its content as raw source " +
+    "for editing. To change part of a long post, read just that part with `find` and change it with wp_edit_content.",
   inputSchema: {
     type: "object",
     properties: {
@@ -78,6 +77,7 @@ export const getPostTool: MCPTool = {
         description:
           "If true, includes the full post content as raw source (context=edit), preserving Gutenberg block markup for editing. Default: true",
       },
+      ...CONTENT_VIEW_PROPERTIES,
     },
     required: ["id"],
   },

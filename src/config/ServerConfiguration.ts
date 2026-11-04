@@ -120,6 +120,9 @@ export class ServerConfiguration {
         });
       }
       const singleSite = this.loadSingleSiteFromEnv(mcpConfig);
+      ConfigurationValidator.validateDefaultSite(process.env.MCP_WORDPRESS_DEFAULT_SITE, [
+        ...singleSite.clients.keys(),
+      ]);
       this.loadInfo = {
         mode: "single-site",
         siteIds: singleSite.configs.map((site) => site.id),
@@ -152,6 +155,7 @@ export class ServerConfiguration {
     // falling back to single-site env config — loadMultiSiteConfig() already
     // logs a fatal diagnostic and rethrows.
     const multiSite = await this.loadMultiSiteConfig(configPath, source);
+    ConfigurationValidator.validateDefaultSite(process.env.MCP_WORDPRESS_DEFAULT_SITE, [...multiSite.clients.keys()]);
     this.loadInfo = { mode: "multi-site", configPath, source, siteIds: multiSite.configs.map((site) => site.id) };
     return multiSite;
   }

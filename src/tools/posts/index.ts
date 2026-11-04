@@ -160,8 +160,12 @@ export class PostTools {
     params: { id: number } | Record<string, unknown>,
   ): Promise<WordPressPost | string> {
     // Extract only the relevant parameters
+    const { id, include_content, find, max_chars } = params as Record<string, unknown>;
     const postParams = {
-      id: params.id as number,
+      id: id as number,
+      include_content: include_content as boolean | undefined,
+      find: find as string | undefined,
+      max_chars: max_chars as number | undefined,
     };
 
     return handleGetPost(client, postParams);

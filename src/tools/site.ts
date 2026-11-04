@@ -72,8 +72,8 @@ export class SiteTools {
             },
             type: {
               type: "string",
-              description: "The type of content to search.",
-              enum: ["posts", "pages", "media"],
+              description: "Post subtype: post, page, or attachment (aliases: posts, pages, media).",
+              enum: ["post", "page", "attachment", "posts", "pages", "media"],
             },
           },
           required: ["term"],
@@ -205,8 +205,19 @@ export class SiteTools {
 
   public async handleSearchSite(client: WordPressClient, params: Record<string, unknown>): Promise<unknown> {
     try {
-      const { term, type } = params as { term: string; type?: "posts" | "pages" | "media" };
-      const results = await client.search(term, type ? [type] : undefined);
+      const { term, type } = params as {
+        term: string;
+        type?: "post" | "page" | "attachment" | "posts" | "pages" | "media";
+      };
+      const subtypes = {
+        post: "post",
+        page: "page",
+        attachment: "attachment",
+        posts: "post",
+        pages: "page",
+        media: "attachment",
+      };
+      const results = type ? await client.search(term, ["post"], subtypes[type]) : await client.search(term);
       if (results.length === 0) {
         return `No results found for "${term}".`;
       }
