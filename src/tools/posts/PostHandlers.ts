@@ -13,7 +13,7 @@ import { ErrorHandlers } from "@/utils/enhancedError.js";
 import { validateId, validatePaginationParams, validatePostParams } from "@/utils/validation.js";
 import { countWords, displayTitle, htmlToPlainText } from "@/utils/htmlText.js";
 import { WordPressDataStreamer, StreamingUtils, StreamingResult } from "@/utils/streaming.js";
-import { formatModified } from "../format.js";
+import { ContentViewOptions, contentView, formatModified, wantsContentView } from "../format.js";
 
 export function buildListParams(params: PostQueryParams): PostQueryParams {
   if (!params || typeof params !== "object") {
@@ -229,13 +229,13 @@ export async function handleListPosts(
  */
 export async function handleGetPost(
   client: WordPressClient,
-  params: { id: number; include_content?: boolean },
+  params: { id: number; include_content?: boolean | undefined } & ContentViewOptions,
 ): Promise<WordPressPost | string> {
   try {
     const postId = validateId(params.id, "post ID");
     // Only include full content if explicitly requested (for backward compatibility, default to true).
     // When content is wanted, fetch with context=edit so content.raw (Gutenberg block markup) is available.
-    const includeContent = params.include_content !== false;
+    const includeContent = params.include_content !== false || wantsContentView(params);
     let post;
     if (includeContent) {
       try {
@@ -315,7 +315,7 @@ export async function handleGetPost(
     }
 
     if (content && includeContent) {
-      response += `\n## Content\n${content}\n`;
+      response += `\n## Content\n${contentView(content, params)}\n`;
     }
 
     // Add management links and metadata

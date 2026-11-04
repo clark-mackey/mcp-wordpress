@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The 88 MCP tools the server exposes, grouped by WordPress resource.
+The 90 MCP tools the server exposes, grouped by WordPress resource.
 
 ## Ownership
 
@@ -33,7 +33,7 @@ auth-error/`EnhancedError` handling. A new tool must satisfy this contract to be
 `cache.ts`, `site.ts`, `auth.ts`) are single files. `posts.ts` and `performance.ts` are `@deprecated` re-export shims —
 edit the subdirectory versions, not the shims.
 
-**Category map** (88 tools / 15 categories — verified against source):
+**Category map** (90 tools / 17 categories — verified against source):
 
 | Category    | File(s)                                     | Count |
 | ----------- | ------------------------------------------- | ----- |
@@ -52,6 +52,8 @@ edit the subdirectory versions, not the shims.
 | Redirection | `redirection/RedirectionToolDefinitions.ts` | 6     |
 | Revisions   | `revisions.ts` (restore only)               | 1     |
 | System      | `version.ts` (wrapped by `system.ts`)       | 1     |
+| ContentEdit | `contentEdit.ts`                            | 1     |
+| RestRead    | `restRead.ts`                               | 1     |
 
 **SEO engines** (`seo/`) — each subdirectory is one engine-per-concern, orchestrated by `seo/SEOTools.ts`:
 `analyzers/ContentAnalyzer.ts` (readability/keyword scoring), `auditors/SiteAuditor.ts` (site-wide audit),
@@ -84,6 +86,22 @@ list page, so the new redirect is the one whose ID exceeds the newest ID read be
 entity-encoded (`Q&#038;A`); excerpts and captions come wrapped in `<p>`, titles can contain inline markup. The post,
 page and media tools print them through `displayTitle()` / `htmlToPlainText()` (`src/utils/htmlText.ts`); do the same in
 any new text output. The SEO engines (`seo/`) still pass `title.rendered` through unchanged in their structured results.
+
+**Partial reads and edits** (token cost): `wp_get_page` / `wp_get_post` take `find` (exact, case-sensitive matches with
+200 characters of context) and `max_chars`; either implies `include_content`. `contentView()` in `format.ts` is the one
+implementation. `wp_edit_content` (`contentEdit.ts`) reads its baseline with `readFresh()` (never the client cache: the
+whole body is written back, so a stale copy would undo newer edits) and applies exact `old_string`/`new_string`
+replacements to the raw body: each must match once unless `replace_all`, every edit is checked before anything is
+written (all or nothing), the saved body passes the same `isUnsafeWordPressContent` check as `wp_update_page`
+(`old_string`/`new_string` are in `WORDPRESS_CONTENT_PARAM_NAMES`, so JSON-LD fragments are allowed), `new_string` is
+inserted literally (no `$` patterns), and a saved body that differs from what was sent is reported, not hidden. It edits
+`post_content` only.
+
+**Generic REST read** (`restRead.ts`): `wp_rest_get` is GET-only and limited to `/wp/v2` routes matching `[a-z0-9_-/]`;
+`users`, `settings`, `application-passwords`, `plugins` and `themes` are refused (dedicated tools or account data).
+`fields` becomes `_fields`; query values must be scalars and keys starting with `_` or named `rest_route` are refused
+(WordPress honors `_method` on a GET and lets `rest_route` override the path; `_embed` pulls in users); output is
+compact JSON cut at `max_chars`.
 
 **Pagination contract**: list tools accept `page` and `per_page` (max 100) in their `inputSchema` — a property missing
 from the schema is stripped by the argument validator, so it never reaches the handler. Handlers forward them to

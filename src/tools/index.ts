@@ -1,11 +1,13 @@
 export { default as AuthTools } from "./auth.js";
 export { default as CacheTools } from "./cache.js";
 export { default as CommentTools } from "./comments.js";
+export { default as ContentEditTools } from "./contentEdit.js";
 export { default as MediaTools } from "./media.js";
 export { default as PageTools } from "./pages.js";
 export { default as PerformanceTools } from "./performance.js";
 export { default as PostTools } from "./posts.js";
 export { default as RedirectionTools } from "./redirection/index.js";
+export { default as RestReadTools } from "./restRead.js";
 export { default as RevisionTools } from "./revisions.js";
 export { default as SEOPressTools } from "./seopress/index.js";
 export { default as SEOTools } from "./seo/index.js";

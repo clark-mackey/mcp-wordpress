@@ -15,7 +15,8 @@ import { LOCAL_FILE_ACCESS_ERROR_CODES } from "@/utils/validation/security.js";
 // contain rich HTML and Gutenberg block markup, so they're validated against the narrower
 // isUnsafeWordPressContent check instead of the general isUnsafePlainText check applied to
 // every other free-text string parameter (titles, slugs, search queries, URLs, etc.).
-const WORDPRESS_CONTENT_PARAM_NAMES = new Set(["content", "excerpt"]);
+// wp_edit_content's old_string/new_string are body fragments too; the handler re-checks the full body.
+const WORDPRESS_CONTENT_PARAM_NAMES = new Set(["content", "excerpt", "old_string", "new_string"]);
 
 /**
  * Interface for tool definition
@@ -126,7 +127,7 @@ export class ToolRegistry {
 
   /**
    * Build and install a cached tools/list handler, bypassing the SDK's per-request
-   * Zod→JSON-Schema conversion for all 88 tools.
+   * Zod→JSON-Schema conversion for all 90 tools.
    */
   private installCachedToolsListHandler(): void {
     if (!this._cachedToolsListResponse) return;

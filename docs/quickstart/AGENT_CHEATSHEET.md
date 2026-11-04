@@ -5,7 +5,7 @@ The person is an agency owner, experienced with Claude Code and GitHub, not nece
 person: `INSTALL.md`. This file is for you.
 
 What is being installed: `github.com/clark-mackey/mcp-wordpress`, an MCP server (Node, stdio) that lets Claude Code edit
-a WordPress site through the WP REST API. It exposes 88 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
+a WordPress site through the WP REST API. It exposes 90 `wp_*` tools. It is a public fork of `docdyhr/mcp-wordpress`
 (MIT).
 
 ---
