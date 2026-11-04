@@ -98,10 +98,11 @@ inserted literally (no `$` patterns), and a saved body that differs from what wa
 `post_content` only.
 
 **Generic REST read** (`restRead.ts`): `wp_rest_get` is GET-only and limited to `/wp/v2` routes matching `[a-z0-9_-/]`;
-`users`, `settings`, `application-passwords`, `plugins` and `themes` are refused (dedicated tools or account data).
-`fields` becomes `_fields`; query values must be scalars and keys starting with `_` or named `rest_route` are refused
-(WordPress honors `_method` on a GET and lets `rest_route` override the path; `_embed` pulls in users); output is
-compact JSON cut at `max_chars`.
+`users`, `settings`, `application-passwords`, `plugins`, `themes` and `comments` are refused (dedicated tools, account
+data, or commenter emails/IPs in edit context). Plugin namespaces stay closed until each gets the route review
+`seopress/` and `redirection/` had. `fields` becomes `_fields`; query values must be scalars and keys starting with `_`
+or named `rest_route` are refused (WordPress honors `_method` on a GET and lets `rest_route` override the path; `_embed`
+pulls in users); output is compact JSON cut at `max_chars`.
 
 **Pagination contract**: list tools accept `page` and `per_page` (max 100) in their `inputSchema` — a property missing
 from the schema is stripped by the argument validator, so it never reaches the handler. Handlers forward them to

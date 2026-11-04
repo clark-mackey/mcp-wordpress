@@ -16,14 +16,14 @@ describe("RestReadTools", () => {
 
   it("GETs a /wp/v2 route with _fields and query", async () => {
     const result = await tools.handleRestGet(mockClient, {
-      route: "/wp-json/wp/v2/gp_elements/",
+      route: "/wp-json/wp/v2/template-parts/",
       fields: ["id", "title"],
       query: { search: "header", per_page: 5 },
     });
 
     expect(mockClient.request).toHaveBeenCalledWith(
       "GET",
-      "https://site.test/wp-json/wp/v2/gp_elements?search=header&per_page=5&_fields=id%2Ctitle",
+      "https://site.test/wp-json/wp/v2/template-parts?search=header&per_page=5&_fields=id%2Ctitle",
     );
     expect(result).toBe('[{"id":7,"title":{"rendered":"Header"}}]');
   });
@@ -34,7 +34,7 @@ describe("RestReadTools", () => {
     expect(result).toMatch(/^\{"content":"x{8}\n\n\[truncated: first 20 of \d+ chars/);
   });
 
-  it.each(["users/me", "settings", "application-passwords", "Plugins"])(
+  it.each(["users/me", "settings", "application-passwords", "Plugins", "comments"])(
     "refuses the denied route %s",
     async (route) => {
       await expect(tools.handleRestGet(mockClient, { route })).rejects.toThrow(/does not read/);

@@ -8,12 +8,16 @@ import { pluginRestUrl } from "./pluginRest.js";
 const DEFAULT_MAX_CHARS = 20_000;
 const ROUTE_PATTERN = /^[a-z0-9_-]+(\/[a-z0-9_-]+)*$/i;
 const QUERY_KEY_PATTERN = /^[a-z0-9_]+(\[\])?$/i;
-// Routes with their own tools, or holding account data this tool should not hand out.
-const DENIED_ROUTES = new Set(["users", "settings", "application-passwords", "plugins", "themes"]);
+// Routes with their own tools, or holding account or visitor data this tool should not hand out
+// (comments in edit context carry commenter emails and IPs).
+const DENIED_ROUTES = new Set(["users", "settings", "application-passwords", "plugins", "themes", "comments"]);
 
 /**
- * Read-only access to core /wp/v2 routes the dedicated tools do not cover: custom post types
- * (theme elements, reusable blocks, template parts, CPTs registered by themes and plugins), types, taxonomies.
+ * Read-only access to /wp/v2 routes the dedicated tools do not cover: block-theme templates and template parts,
+ * reusable blocks, navigation menus, and custom post types and taxonomies that themes and plugins register there.
+ *
+ * ponytail: limited to the /wp/v2 namespace. Plugin namespaces (wc/v3, acf/v3, …) need per-namespace route review
+ * before opening, as seopress/ and redirection/ had; add them as dedicated tools or a reviewed namespace allowlist.
  */
 export class RestReadTools {
   public getTools(): Array<{
@@ -26,15 +30,15 @@ export class RestReadTools {
       {
         name: "wp_rest_get",
         description:
-          "Read-only GET of a core /wp-json/wp/v2 route that has no dedicated tool, such as custom post types " +
-          "(`gp_elements`, `blocks`, `template-parts`, a theme's `service`), `types` or `taxonomies`. " +
+          "Read-only GET of a /wp-json/wp/v2 route that has no dedicated tool: `templates`, `template-parts`, `blocks`, " +
+          "`navigation`, `menu-items`, or a custom post type or taxonomy a theme or plugin registers (list them with `types` and `taxonomies`). " +
           "Prefer the dedicated tools for pages, posts, media, users and settings. Pass `fields` to return only what you need.",
         inputSchema: {
           type: "object",
           properties: {
             route: {
               type: "string",
-              description: "Route under /wp-json/wp/v2, e.g. `types`, `gp_elements`, `blocks/42`.",
+              description: "Route under /wp-json/wp/v2, e.g. `types`, `template-parts`, `blocks/42`.",
             },
             fields: {
               type: "array",
@@ -73,7 +77,7 @@ export class RestReadTools {
         .replace(/^(wp-json\/)?wp\/v2\/?/, "");
       if (!ROUTE_PATTERN.test(path)) {
         throw new WordPressAPIError(
-          "route must be a /wp/v2 route made of letters, digits, '-', '_' and '/', e.g. `gp_elements/12`.",
+          "route must be a /wp/v2 route made of letters, digits, '-', '_' and '/', e.g. `blocks/12`.",
           400,
           "INVALID_PARAMETER",
         );

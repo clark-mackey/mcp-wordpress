@@ -32,7 +32,7 @@ export class ContentEditTools {
           "Changes part of a page or post body by exact text replacement, without sending the whole body. " +
           "Each old_string must match the raw content (Gutenberg block markup included) exactly once, unless replace_all is set; " +
           "find it with wp_get_page / wp_get_post `find`. All edits apply in order and are saved together as one revision, " +
-          "or none are saved if any fails. Changes post_content only: page-builder layouts such as Elementor's are not touched.",
+          "or none are saved if any fails. Changes post_content only: builders that keep layout in post meta (such as Elementor) are not touched.",
         inputSchema: {
           type: "object",
           properties: {
