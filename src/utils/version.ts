@@ -8,7 +8,6 @@
  * - Version comparison utilities
  */
 
-import { readFile } from "fs/promises";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
@@ -41,6 +40,27 @@ interface PackageJson {
   name: string;
   version: string;
   description?: string;
+}
+
+/**
+ * Reads this server's package.json by searching up from startDir. It is two levels above
+ * dist/utils in a source checkout but beside bundle/ in a bundled plugin, so a fixed
+ * relative path misses one of them. The name check skips a host project's package.json.
+ */
+export function readOwnPackageJson(startDir = dirname(fileURLToPath(import.meta.url))): PackageJson | undefined {
+  let dir = startDir;
+  for (let depth = 0; depth < 4; depth++) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as PackageJson;
+      if (pkg.name === "mcp-wordpress") return pkg;
+    } catch {
+      // No readable package.json here; keep looking.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
 }
 
 /**
@@ -112,21 +132,14 @@ export class VersionManager {
 
   /**
    * Load version synchronously — reads package.json from disk first,
-   * falls back to the hardcoded constant only if the file isn't found
-   * (e.g. inside a DXT bundle without package.json at ../../package.json).
+   * falls back to an "unknown" version only if no package.json is found.
    */
   private loadVersionSync(): VersionInfo {
-    try {
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      const packagePath = join(__dirname, "..", "..", "package.json");
-      const pkg = JSON.parse(readFileSync(packagePath, "utf-8")) as PackageJson;
+    const pkg = readOwnPackageJson();
+    if (pkg) {
       this.packageJson = pkg;
-      return this.loadVersionFromPackage(pkg);
-    } catch {
-      const pkg = this.getFallbackPackageInfo();
-      return this.loadVersionFromPackage(pkg);
     }
+    return this.loadVersionFromPackage(pkg ?? this.getFallbackPackageInfo());
   }
 
   /**
@@ -154,20 +167,7 @@ export class VersionManager {
    * Load package.json
    */
   private async loadPackageJson(): Promise<PackageJson> {
-    try {
-      // Get the project root directory
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      const projectRoot = join(__dirname, "..", "..");
-      const packagePath = join(projectRoot, "package.json");
-
-      const packageContent = await readFile(packagePath, "utf-8");
-      return JSON.parse(packageContent) as PackageJson;
-    } catch (_error) {
-      // Fallback for runtime environments where package.json might not be available
-      // Note: Using fallback version - should match package.json
-      return this.getFallbackPackageInfo();
-    }
+    return readOwnPackageJson() ?? this.getFallbackPackageInfo();
   }
 
   /**
@@ -362,7 +362,8 @@ export class VersionManager {
   private getFallbackPackageInfo(): PackageJson {
     return {
       name: "mcp-wordpress",
-      version: process.env.npm_package_version || "3.1.22",
+      // A hardcoded release number goes stale and misreports the version; say unknown instead.
+      version: process.env.npm_package_version || "0.0.0-unknown",
       description: "MCP WordPress Server",
     };
   }
