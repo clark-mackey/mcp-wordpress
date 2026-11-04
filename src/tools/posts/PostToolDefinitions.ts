@@ -53,6 +53,21 @@ export const listPostsTool: MCPTool = {
         items: { type: "number" },
         description: "Limit results to posts with specific tag IDs.",
       },
+      orderby: {
+        type: "string",
+        description: "Sort field.",
+        enum: ["date", "modified", "title", "slug", "id", "author", "relevance"],
+      },
+      order: {
+        type: "string",
+        description: "Sort direction.",
+        enum: ["asc", "desc"],
+      },
+      offset: {
+        type: "number",
+        minimum: 0,
+        description: "Number of posts to skip.",
+      },
     },
   },
 };

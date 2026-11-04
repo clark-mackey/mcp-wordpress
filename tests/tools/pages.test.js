@@ -63,10 +63,11 @@ describe("PageTools", () => {
 
       // wp_list_pages should have optional parameters
       const listProps = toolsByName["wp_list_pages"].inputSchema.properties;
-      expect(Object.keys(listProps)).toHaveLength(3);
+      expect(Object.keys(listProps)).toHaveLength(7);
       expect(listProps.per_page).toBeTruthy();
       expect(listProps.search).toBeTruthy();
       expect(listProps.status).toBeTruthy();
+      expect(listProps.parent).toBeTruthy();
 
       // wp_get_page should require id
       const getPageSchema = toolsByName["wp_get_page"].inputSchema;
@@ -79,9 +80,14 @@ describe("PageTools", () => {
       expect(createSchema.properties.content).toBeTruthy();
       expect(createSchema.required).toContain("title");
 
-      // wp_update_page should require id
+      expect(createSchema.properties.parent.type).toBe("number");
+      expect(createSchema.properties.featured_media.type).toBe("number");
+
+      // wp_update_page should require id and accept parent and featured_media
       const updateSchema = toolsByName["wp_update_page"].inputSchema;
       expect(updateSchema.required).toContain("id");
+      expect(updateSchema.properties.parent.type).toBe("number");
+      expect(updateSchema.properties.featured_media.type).toBe("number");
 
       // wp_delete_page should require id
       const deleteSchema = toolsByName["wp_delete_page"].inputSchema;
@@ -408,6 +414,44 @@ describe("PageTools", () => {
     });
   });
 
+  describe("page hierarchy and featured image in get output", () => {
+    it("shows the parent and featured image IDs", async () => {
+      mockClient.getPage.mockResolvedValueOnce({
+        id: 3,
+        title: { rendered: "Child" },
+        content: { rendered: "" },
+        status: "draft",
+        date: "2024-01-01T00:00:00",
+        link: "https://test-site.com/child",
+        parent: 2,
+        featured_media: 41,
+      });
+
+      const result = await pageTools.handleGetPage(mockClient, { id: 3 });
+
+      expect(result).toContain("**Parent:** 2");
+      expect(result).toContain("**Featured image:** media 41");
+    });
+
+    it("says top level and none when unset", async () => {
+      mockClient.getPage.mockResolvedValueOnce({
+        id: 4,
+        title: { rendered: "Top" },
+        content: { rendered: "" },
+        status: "publish",
+        date: "2024-01-01T00:00:00",
+        link: "https://test-site.com/top",
+        parent: 0,
+        featured_media: 0,
+      });
+
+      const result = await pageTools.handleGetPage(mockClient, { id: 4 });
+
+      expect(result).toContain("**Parent:** none (top level)");
+      expect(result).toContain("**Featured image:** none");
+    });
+  });
+
   describe("handleUpdatePage", () => {
     it("should update a page successfully", async () => {
       const mockUpdatedPage = {
@@ -432,6 +476,14 @@ describe("PageTools", () => {
       expect(mockClient.updatePage).toHaveBeenCalledWith(updateData);
       expect(typeof result).toBe("string");
       expect(result).toContain("✅ Page 1 updated successfully");
+    });
+
+    it("passes parent and featured_media through, including 0 to clear them", async () => {
+      mockClient.updatePage.mockResolvedValueOnce({ id: 7, status: "draft" });
+
+      await pageTools.handleUpdatePage(mockClient, { id: 7, parent: 0, featured_media: 0 });
+
+      expect(mockClient.updatePage).toHaveBeenCalledWith({ id: 7, parent: 0, featured_media: 0 });
     });
 
     it("should handle update errors", async () => {

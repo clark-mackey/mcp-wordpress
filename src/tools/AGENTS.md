@@ -24,8 +24,10 @@ WordPress terms have no trash, so the client's default `force=false` is always r
 **Registration contract**: each exported class (`src/tools/index.ts`) must implement
 `getTools(): { name, description, inputSchema, handler }[]`. `ToolRegistry.registerAllTools()` instantiates every class
 (some, like `CacheTools`/`PerformanceTools`, take the `wordpressClients` map in their constructor), converts each
-`inputSchema` to Zod at runtime, auto-injects a `site` parameter in multi-site mode, and wraps handlers in try/catch for
-auth-error/`EnhancedError` handling. A new tool must satisfy this contract to be picked up.
+`inputSchema` to a strict Zod object at runtime (an undeclared argument fails the call with the accepted names, never a
+silent drop; the cached tools/list schema says `additionalProperties: false`), auto-injects a `site` parameter in
+multi-site mode, and wraps handlers in try/catch for auth-error/`EnhancedError` handling. A new tool must satisfy this
+contract to be picked up.
 
 **File pattern**: multiple tools per file, grouped by resource — not file-per-tool. Newer/larger categories (`posts/`,
 `seo/`, `performance/`, `seopress/`, `redirection/`) split into `*ToolDefinitions.ts` (schemas) + `*Handlers.ts`
@@ -105,7 +107,7 @@ or named `rest_route` are refused (WordPress honors `_method` on a GET and lets 
 pulls in users); output is compact JSON cut at `max_chars`.
 
 **Pagination contract**: list tools accept `page` and `per_page` (max 100) in their `inputSchema` — a property missing
-from the schema is stripped by the argument validator, so it never reaches the handler. Handlers forward them to
+from the schema is rejected by the argument validator, so it never reaches the handler. Handlers forward them to
 WordPress, which defaults to 10 per page, and end a full page with a next-page note (`pageHint()` in `params.ts`;
 `postsPaginationNote()` for posts, including the >50-post streaming path). The note is the only signal that more results
 exist because the X-WP-Total header is not exposed to tools; never label a page's size as a site total.

@@ -57,7 +57,7 @@ describe("post tools through ToolRegistry", () => {
   function createRegistry(client) {
     const registered = new Map();
     const server = {
-      tool: (name, description, schema, handler) => registered.set(name, handler),
+      registerTool: (name, config, handler) => registered.set(name, handler),
       server: { setRequestHandler: () => {} },
     };
     const registry = new ToolRegistry(server, new Map([["default", client]]));

@@ -49,6 +49,25 @@ export class PageTools {
               description: "Filter by page status.",
               enum: ["publish", "future", "draft", "pending", "private"],
             },
+            page: {
+              type: "number",
+              minimum: 1,
+              description: "Page of results to return (default 1).",
+            },
+            orderby: {
+              type: "string",
+              description: "Sort field.",
+              enum: ["date", "modified", "title", "slug", "id", "parent", "menu_order", "author"],
+            },
+            order: {
+              type: "string",
+              description: "Sort direction.",
+              enum: ["asc", "desc"],
+            },
+            parent: {
+              type: "number",
+              description: "Only children of this page ID; 0 for top-level pages.",
+            },
           },
           required: [],
         },
@@ -97,6 +116,14 @@ export class PageTools {
               description: "The publishing status for the page.",
               enum: ["publish", "draft", "pending", "private"],
             },
+            parent: {
+              type: "number",
+              description: "ID of the parent page; 0 makes it top level.",
+            },
+            featured_media: {
+              type: "number",
+              description: "Media ID of the featured image; 0 removes it.",
+            },
           },
           required: ["title"],
         },
@@ -124,6 +151,14 @@ export class PageTools {
               type: "string",
               description: "The new status for the page.",
               enum: ["publish", "draft", "pending", "private"],
+            },
+            parent: {
+              type: "number",
+              description: "ID of the parent page; 0 makes it top level.",
+            },
+            featured_media: {
+              type: "number",
+              description: "Media ID of the featured image; 0 removes it.",
             },
           },
           required: ["id"],
@@ -212,7 +247,9 @@ export class PageTools {
         `- **Title:** ${displayTitle(page.title.rendered)}\n` +
         `- **Status:** ${page.status}\n` +
         `- **Link:** ${page.link}\n` +
-        `- **Date:** ${new Date(page.date).toLocaleString()}`;
+        `- **Date:** ${new Date(page.date).toLocaleString()}\n` +
+        `- **Parent:** ${page.parent ? page.parent : "none (top level)"}\n` +
+        `- **Featured image:** ${page.featured_media ? `media ${page.featured_media}` : "none"}`;
 
       if (include_content) {
         content +=
