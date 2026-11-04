@@ -14,8 +14,8 @@ import { WordPressAPIError } from "@/types/client.js";
 function createMockServer() {
   const registeredTools = new Map();
   return {
-    tool: vi.fn((name, description, schema, handler) => {
-      registeredTools.set(name, { name, description, schema, handler });
+    registerTool: vi.fn((name, { description, inputSchema }, handler) => {
+      registeredTools.set(name, { name, description, schema: inputSchema.shape, inputSchema, handler });
     }),
     server: {
       setRequestHandler: vi.fn(),
@@ -91,6 +91,59 @@ describe("ToolRegistry", () => {
 
       expect(missingSite.success).toBe(false);
       expect(withSite.success).toBe(true);
+    });
+  });
+
+  describe("unknown arguments", () => {
+    const tool = simpleTool({
+      name: "wp_update_thing",
+      inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] },
+    });
+
+    it("rejects an argument the schema does not list, naming the accepted ones", () => {
+      const server = createMockServer();
+      new ToolRegistry(server, new Map([["default", {}]])).registerTool(tool);
+      const { inputSchema } = server._registeredTools.get("wp_update_thing");
+
+      const result = inputSchema.safeParse({ id: 1, parent: 5 });
+      expect(result.success).toBe(false);
+      expect(result.error.issues[0].message).toBe("Unknown argument(s): parent. wp_update_thing accepts: site, id.");
+      expect(inputSchema.safeParse({ id: 1 }).success).toBe(true);
+    });
+
+    it("rejects unknown fields inside declared nested objects but keeps open records open", () => {
+      const server = createMockServer();
+      const nested = simpleTool({
+        name: "wp_nested",
+        inputSchema: {
+          type: "object",
+          properties: {
+            edits: {
+              type: "array",
+              items: { type: "object", properties: { old_string: { type: "string" } } },
+            },
+            query: { type: "object" },
+          },
+        },
+      });
+      const registry = new ToolRegistry(server, new Map([["default", {}]]));
+      registry.registerTool(nested);
+      const { inputSchema } = server._registeredTools.get("wp_nested");
+
+      const bad = inputSchema.safeParse({ edits: [{ old_string: "a", parent: 5 }] });
+      expect(bad.success).toBe(false);
+      expect(bad.error.issues[0].message).toBe("Unknown field(s): parent. Accepts: old_string.");
+      expect(inputSchema.safeParse({ query: { anything: 1 } }).success).toBe(true);
+
+      const cached = registry.buildCachedInputSchema(nested);
+      expect(cached.properties.edits.items.additionalProperties).toBe(false);
+      expect(cached.properties.query.additionalProperties).toBeUndefined();
+      expect(nested.inputSchema.properties.edits.items.additionalProperties).toBeUndefined(); // source untouched
+    });
+
+    it("advertises additionalProperties: false in tools/list", () => {
+      const registry = new ToolRegistry(createMockServer(), new Map([["default", {}]]));
+      expect(registry.buildCachedInputSchema(tool).additionalProperties).toBe(false);
     });
   });
 

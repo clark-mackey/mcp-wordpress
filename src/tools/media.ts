@@ -71,6 +71,11 @@ export class MediaTools {
               type: "number",
               description: "Number of items to return per page (max 100).",
             },
+            page: {
+              type: "number",
+              minimum: 1,
+              description: "Page of results to return (default 1).",
+            },
             search: {
               type: "string",
               description: "Limit results to those matching a search term.",

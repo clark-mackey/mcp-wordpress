@@ -17,8 +17,8 @@ describe("default site routing", () => {
     vi.stubEnv("MCP_WORDPRESS_DEFAULT_SITE", "site2");
     let registered;
     const server = {
-      tool: vi.fn((_name, _description, schema, handler) => {
-        registered = { schema, handler };
+      registerTool: vi.fn((_name, { inputSchema }, handler) => {
+        registered = { schema: inputSchema.shape, handler };
       }),
     };
     const handler = vi.fn().mockResolvedValue("ok");
@@ -41,7 +41,7 @@ describe("default site routing", () => {
     vi.stubEnv("MCP_WORDPRESS_DEFAULT_SITE", "site2");
     let call;
     const server = {
-      tool: vi.fn((_name, _description, _schema, handler) => {
+      registerTool: vi.fn((_name, _config, handler) => {
         call = handler;
       }),
     };
@@ -56,8 +56,8 @@ describe("default site routing", () => {
     vi.stubEnv("MCP_WORDPRESS_DEFAULT_SITE", undefined);
     let schema;
     const server = {
-      tool: vi.fn((_name, _description, input) => {
-        schema = input;
+      registerTool: vi.fn((_name, { inputSchema }) => {
+        schema = inputSchema.shape;
       }),
     };
     const registry = new ToolRegistry(server, clients);

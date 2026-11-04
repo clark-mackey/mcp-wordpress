@@ -45,6 +45,15 @@ export class UserTools {
               items: { type: "string" },
               description: "Limit results to users with specific roles.",
             },
+            per_page: {
+              type: "number",
+              description: "Number of items to return per page (max 100).",
+            },
+            page: {
+              type: "number",
+              minimum: 1,
+              description: "Page of results to return (default 1).",
+            },
           },
         },
         handler: this.handleListUsers.bind(this),

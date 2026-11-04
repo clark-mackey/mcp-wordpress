@@ -38,6 +38,19 @@ export interface ToolDefinition {
   handler: (client: WordPressClient, args: Record<string, unknown>) => Promise<unknown>;
 }
 
+/** Copy of a JSON Schema property with `additionalProperties: false` on every object that declares properties. */
+function closeDeclaredObjects(prop: JSONSchemaProperty): JSONSchemaProperty {
+  const copy: JSONSchemaProperty & { additionalProperties?: boolean } = { ...prop };
+  if (prop.items) copy.items = closeDeclaredObjects(prop.items);
+  if (prop.type === "object" && prop.properties) {
+    copy.properties = Object.fromEntries(
+      Object.entries(prop.properties).map(([key, nested]) => [key, closeDeclaredObjects(nested)]),
+    );
+    copy.additionalProperties = false;
+  }
+  return copy;
+}
+
 /**
  * Registry for managing MCP tools
  * Handles tool registration, parameter validation, and execution
@@ -155,10 +168,19 @@ export class ToolRegistry {
     // Merge with tool-specific parameters
     const parameterSchema = this.buildParameterSchema(tool, baseSchema);
 
-    this.server.tool(
+    // Strict: an argument the schema does not list is an error naming the accepted ones. A plain object
+    // would drop it silently, so a call with an unsupported field (e.g. `parent` on a page) reported
+    // success and changed nothing.
+    const inputSchema = z.strictObject(parameterSchema as z.ZodRawShape, {
+      error: (issue) =>
+        issue.code === "unrecognized_keys"
+          ? `Unknown argument(s): ${issue.keys.join(", ")}. ${tool.name} accepts: ${Object.keys(parameterSchema).join(", ")}.`
+          : undefined,
+    });
+
+    this.server.registerTool(
       tool.name,
-      tool.description || `WordPress tool: ${tool.name}`,
-      parameterSchema,
+      { description: tool.description || `WordPress tool: ${tool.name}`, inputSchema },
       async (args: Record<string, unknown>) => {
         // Track from entry so every dispatched call is counted, including ones that fail before the handler
         // runs (unknown site, missing `site`). `succeeded` flips only when the handler returns a good result;
@@ -314,7 +336,9 @@ export class ToolRegistry {
     const required: string[] = siteRequired ? ["site"] : [];
 
     if (tool.inputSchema) {
-      Object.assign(properties, tool.inputSchema.properties || {});
+      for (const [key, prop] of Object.entries(tool.inputSchema.properties || {})) {
+        properties[key] = closeDeclaredObjects(prop);
+      }
       required.push(...(tool.inputSchema.required || []));
     } else if (tool.parameters) {
       for (const param of tool.parameters) {
@@ -327,7 +351,8 @@ export class ToolRegistry {
       }
     }
 
-    const schema: Record<string, unknown> = { type: "object", properties };
+    // Matches the strict Zod object in registerTool(): unknown arguments are rejected.
+    const schema: Record<string, unknown> = { type: "object", properties, additionalProperties: false };
     if (required.length > 0) schema.required = required;
     return schema;
   }
@@ -415,7 +440,14 @@ export class ToolRegistry {
           }
           shape[key] = nestedType;
         }
-        return z.object(shape);
+        // Declared nested objects are strict too (e.g. wp_edit_content's edits[]); property-less
+        // objects below stay open records for free-form data (REST queries, schema, settings).
+        return z.strictObject(shape, {
+          error: (issue) =>
+            issue.code === "unrecognized_keys"
+              ? `Unknown field(s): ${issue.keys.join(", ")}. Accepts: ${Object.keys(shape).join(", ")}.`
+              : undefined,
+        });
       }
       return z.record(z.string(), z.unknown());
     }

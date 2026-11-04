@@ -64,7 +64,7 @@ describe("MediaTools", () => {
 
       // wp_list_media should have optional parameters
       const listProps = toolsByName["wp_list_media"].inputSchema.properties;
-      expect(Object.keys(listProps)).toHaveLength(3);
+      expect(Object.keys(listProps)).toHaveLength(4);
       expect(listProps.per_page).toBeTruthy();
       expect(listProps.search).toBeTruthy();
       expect(listProps.media_type).toBeTruthy();
