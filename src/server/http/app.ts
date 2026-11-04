@@ -69,6 +69,11 @@ export function createHostedApp({
     });
   app.post("/mcp", auth.requireAuth, async (req, res, next) => {
     const principal = res.locals.principal as Principal;
+    // A batch would hide its tools/call messages from the per-principal limit below.
+    if (Array.isArray(req.body)) {
+      res.status(400).json({ error: "Batch requests are not supported." });
+      return;
+    }
     const isToolCall = req.body?.method === "tools/call";
     const count = inFlight.get(principal.id) ?? 0;
     if (isToolCall && count >= 4) {

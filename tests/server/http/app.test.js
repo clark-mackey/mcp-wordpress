@@ -166,6 +166,13 @@ describe("hosted HTTP app", () => {
     }
   });
 
+  it("rejects JSON-RPC batches so batched calls cannot skip the concurrency limit", async () => {
+    app = startApp([{ id: "all", tools: { all: true } }]);
+    const call = rpc("tools/call", { name: "wp_list_posts", arguments: {} });
+    const result = await request(app, "/mcp", { method: "POST", token: "all", body: [call, { ...call, id: 2 }] });
+    expect(result.response.statusCode).toBe(400);
+  });
+
   it("answers /healthz for the platform's own probe Host", async () => {
     app = startApp([{ id: "all", tools: { all: true } }]);
     const result = await request(app, "/healthz", { host: "healthcheck.railway.app" });

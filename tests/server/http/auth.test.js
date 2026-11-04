@@ -572,15 +572,41 @@ describe("SDK OAuth integration", () => {
       "http://localhost:123/callback?x=1",
       "http://localhost:123/callback#x",
     ]) {
+      const before = lines.length;
       const { response, client } = await app.register(uri);
       expect(response.status).toBe(400);
       expect(client.error).toBe("invalid_redirect_uri");
       expect(
         lines
+          .slice(before)
           .map((line) => JSON.parse(line))
-          .filter((event) => event.event === "redirect_refused" && event.uri === uri),
+          .filter((event) => event.event === "redirect_refused"),
       ).toHaveLength(1);
     }
+  });
+  it(card("refused redirect log omits credentials", "userinfo or query secrets reach the log"), async () => {
+    const lines = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((value) => {
+      lines.push(String(value));
+      return true;
+    });
+    const app = await appFor();
+    await app.register("https://user:pw-secret@example.com/cb?token=query-secret#frag-secret");
+    await app.register("not a uri with raw-secret");
+    const events = lines.map((line) => JSON.parse(line)).filter((event) => event.event === "redirect_refused");
+    expect(events).toEqual([
+      { event: "redirect_refused", uri: "https://example.com/cb" },
+      { event: "redirect_refused", uri: "[invalid URI]" },
+    ]);
+    expect(lines.join("")).not.toMatch(/pw-secret|query-secret|frag-secret|raw-secret/);
+  });
+  it(card("pending authorization codes are capped per principal", "unexchanged codes grow without bound"), async () => {
+    const app = await appFor();
+    const { client } = await app.register();
+    const form = await authorization(app, client);
+    for (let i = 0; i < 16; i++)
+      expect((await app.post("/authorize/passcode", { transaction: form.transaction, passcode })).status).toBe(302);
+    expect((await app.post("/authorize/passcode", { transaction: form.transaction, passcode })).status).toBe(401);
   });
   it(card("signed transaction integrity and expiry", "tampered or expired form authenticates"), async () => {
     const app = await appFor();

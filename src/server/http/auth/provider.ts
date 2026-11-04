@@ -97,7 +97,15 @@ export class PasscodeOAuthProvider implements OAuthServerProvider {
 
   checkRedirect(uri: string): void {
     if (!this.config.redirectAllowed(uri)) {
-      audit("redirect_refused", { uri });
+      // Origin and path are what an operator needs to allowlist the app; userinfo, query and fragment can carry secrets.
+      let logged = "[invalid URI]";
+      try {
+        const parsed = new URL(uri);
+        logged = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+      } catch {
+        // Malformed input is not logged.
+      }
+      audit("redirect_refused", { uri: logged });
       throw new InvalidRedirectUriError("Redirect URI refused");
     }
   }
@@ -135,7 +143,13 @@ export class PasscodeOAuthProvider implements OAuthServerProvider {
 
   complete(claims: JWTPayload, principal: string): string {
     const now = Date.now();
-    for (const [key, code] of this.codes) if (code.expires <= now) this.codes.delete(key);
+    let pending = 0;
+    for (const [key, code] of this.codes) {
+      if (code.expires <= now) this.codes.delete(key);
+      else if (code.principal === principal) pending += 1;
+    }
+    // Bounds memory: unexchanged codes per person, so the map never exceeds principals x this cap.
+    if (pending >= 16) throw new InvalidGrantError("Too many pending authorizations");
     const value = randomBytes(32).toString("base64url");
     this.codes.set(value, {
       principal,
