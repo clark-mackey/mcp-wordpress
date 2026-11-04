@@ -1,3 +1,6 @@
+# Block deployment-specific terms (private list in ~/.config/mcp-wordpress/leak-terms.txt; no-op without it)
+node scripts/check-leak-terms.cjs --staged
+
 # Run lint-staged for code formatting and basic checks
 echo "🧹 Running lint-staged..."
 npx lint-staged

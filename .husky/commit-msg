@@ -1,0 +1,2 @@
+# Block deployment-specific terms in the commit message (no-op without a private term list)
+node scripts/check-leak-terms.cjs --message-file "$1"
