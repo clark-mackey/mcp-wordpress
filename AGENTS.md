@@ -127,6 +127,10 @@ Quality gates before a PR: `npm test && npm run lint && npm run security:scan &&
 ## Security Notes
 
 - Never commit credentials or config files (`mcp-wordpress.config.json` and `.env` are gitignored)
+- This repo is public and mirrored downstream. No deployment- or organization-specific names, counts, clients,
+  infrastructure or runbooks in code, docs, commit messages or PR text; that belongs in each deployment's private repo.
+  `scripts/check-leak-terms.cjs` enforces a private term list in the pre-commit and commit-msg hooks (from
+  `~/.config/mcp-wordpress/leak-terms.txt`) and in `.github/workflows/leak-guard.yml` (from the `LEAK_TERMS` secret)
 - Branch protection enforced on main; PRs required for all changes
 - CodeQL + Trivy scanning enabled in CI
 - Run `npm run security:scan` before commits

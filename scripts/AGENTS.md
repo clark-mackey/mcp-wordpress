@@ -52,6 +52,9 @@ Mostly none beyond each script's own behavior — there is no test suite for `sc
 its vitest-summary parsing (plain and ANSI-coloured output) and its batch pass/fail rules. Change the parser only
 together with those fixtures — a parser that silently matches nothing makes every batch report 0 tests.
 
+`check-leak-terms.cjs` (run by the pre-commit and commit-msg hooks and `leak-guard.yml`) has tests in
+`tests/bin/check-leak-terms.test.js`. It must never print a matched term: CI logs are public.
+
 ## Child DOX Index
 
 None.

@@ -1,0 +1,48 @@
+name: Leak Guard
+
+# Fails a change that contains deployment-specific terms. The term list is the LEAK_TERMS repository secret (one term
+# per line) and is never printed; see scripts/check-leak-terms.cjs.
+#
+# pull_request_target runs this base-branch workflow and scanner for every pull request, including ones from forks,
+# with the secret available. The pull request's commits are only fetched and read by git; none of its code runs. Do not
+# add a step that checks out, installs or executes the pull request's files.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  leak-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch pull request commits
+        if: github.event_name == 'pull_request_target'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: git fetch --no-tags "$REPO_URL" "refs/pull/$PR_NUMBER/head"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check for protected terms
+        env:
+          LEAK_TERMS: ${{ secrets.LEAK_TERMS }}
+          RANGE:
+            ${{ github.event_name == 'push' && format('{0}..{1}', github.event.before, github.sha) ||
+            format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
+        run: node scripts/check-leak-terms.cjs --require-terms --range "$RANGE"
