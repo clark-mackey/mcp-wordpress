@@ -96,6 +96,9 @@ Claude Code / Codex ─bearer──┤   Railway service "wordpress-mcp" (1 repl
 | `MCP_PASSCODE_<PRINCIPAL>`       | one per person | That person's passcode, made by `npm run passcode` (32 random bytes, base64url, 43 characters). `<PRINCIPAL>` is the upper-cased id. A principal without one cannot sign in.                                                                                |
 | `MCP_WORDPRESS_ALLOW_MULTI_SITE` | yes            | `true`, as today.                                                                                                                                                                                                                                           |
 | `MCP_WORDPRESS_DEFAULT_SITE`     | no             | Unset in hosted mode (each person picks the site).                                                                                                                                                                                                          |
+| `MCP_USAGE_DATABASE_URL`         | no             | PostgreSQL connection string. Enables hosted usage recording; unset leaves request behavior unchanged.                                                                                                                                                      |
+| `MCP_USAGE_RETENTION_DAYS`       | no             | Integer `1`-`3650`; defaults to `90`. Invalid values fail startup.                                                                                                                                                                                          |
+| `MCP_USAGE_REVIEWER`             | no             | Configured principal ID allowed to read the usage report. Invalid IDs fail startup; unset makes the report route return 404.                                                                                                                                |
 
 `MCP_PRINCIPALS_JSON`:
 
@@ -215,43 +218,17 @@ progress"). This only covers two hosted calls racing; see decision 8.
 
 ### Usage log
 
-One JSON line per tool call to stdout (Railway keeps it with the service logs):
-
-```json
-{
-  "evt": "tool_call",
-  "ts": "2026-11-04T18:02:11.512Z",
-  "principal": "editor",
-  "tool": "wp_edit_content",
-  "site": "site1",
-  "target": "page:123",
-  "ok": true,
-  "ms": 842,
-  "error_code": null
-}
-```
-
-- `site` is logged only if it is a configured site id, else `"unknown"`; `target` only from a numeric `id`.
-- `ok` is false when the tool threw **or** returned an error result (`isError` / `isFailedToolResult`,
-  `src/server/ToolRegistry.ts:72-76`).
-- `error_code` is one of `null`, `validation`, `not_found`, `permission`, `wordpress_error`, `timeout`, `locked`,
-  `upload_refused`, `internal`.
-- Sign-in lines: `evt: "auth"`, `principal` or `null`, `ok`, `ip`, `route`.
-- Never logged anywhere in the process (usage log, the existing logger, express errors): argument values other than the
-  above, content bodies, `source_url`, tokens, passcodes, WordPress response bodies. The express error handler returns a
-  generic 500 and logs only the error class and code.
-- In stdio mode none of this is written.
-
-Ceiling: Railway keeps logs 7 days on Hobby and 30 on Pro. If a longer history is needed, add a Postgres sink as its own
-change.
+Hosted usage events are written only to PostgreSQL when `MCP_USAGE_DATABASE_URL` is configured. Operational logs do not
+contain call arguments or result bodies. Authentication logging remains separate from usage events, and stdio mode does
+not construct the writer.
 
 ### Railway
 
 - New service `wordpress-mcp` in your Railway project, built from this repo's `Dockerfile`, command `node dist/index.js`
   with `MCP_TRANSPORT=http`.
 - `railway.toml`: `numReplicas = 1`, healthcheck `/healthz`, restart on failure.
-- `/healthz` returns 200 with `{"ok":true,"version":"<package version>","sites":<count>}` once the server is listening.
-  It does not call WordPress, so one slow client site can't fail the deploy.
+- `/healthz` returns 200 with version, site count, and `usage: { enabled: false }` or enabled aggregate writer counters
+  once the server is listening. It does not call WordPress, so one slow client site can't fail the deploy.
 - The MCP endpoint is `PUBLIC_BASE_URL/mcp`. `StreamableHTTPServerTransport` runs with `sessionIdGenerator: undefined`
   and DNS-rebinding protection on, allowed host = `PUBLIC_BASE_URL`'s host.
 - `app.set("trust proxy", 1)` so rate limiting sees client IPs behind Railway's edge.
@@ -261,8 +238,38 @@ change.
 - Request body limit 1 MB; at most 4 tool calls in flight per person (the 5th gets 429).
 - Skip the per-site connection test at startup in hosted mode, so one down client site can't block a deploy.
 - On `SIGTERM`, stop accepting requests and let in-flight calls finish (max 25 seconds) before exit.
+- When `MCP_USAGE_DATABASE_URL` is set, record one PostgreSQL event per attempted tool call (including SDK validation,
+  unknown-tool, and grant rejections) and per concurrency rejection. The request path never waits for the bounded
+  256-event queue. Writes use batches of at most 50; failed batches are discarded. After HTTP draining, shutdown gives
+  the writer at most 5 seconds to flush.
+- `GET /admin/usage/report?since=&until=` requires authentication and the exact `MCP_USAGE_REVIEWER` principal. It
+  returns aggregate counts, per-tool latency/result-size summaries, error classes, search summaries, and writer counters
+  with `Cache-Control: no-store`. Zoned ISO timestamps are required; the default is 30 days, the maximum is 92 days, and
+  the start is clamped to retention. Database failures return a fixed 503 response.
 - Railway project access: only the operator can see this service's variables (they hold every site's application
   password and the signing key).
+
+### Hosted usage data
+
+The event row stores timestamps, a per-attempt and per-boot UUID, event type, principal ID, recognized client
+family/version, tool and resolved site IDs, fixed outcome, sanitized error class, duration, returned text byte length,
+result count, server version, and a small allowlisted JSON payload. Outcomes are `success`, `tool_failure`,
+`site_required`, `site_not_found`, `auth_failed`, `permission_denied`, `error`, `cancelled`, `not_dispatched`, and
+`concurrency_limited` for rejection events. `not_dispatched` uses `invalid_arguments` only for a tool in the principal's
+registry and `unknown_tool` otherwise; unknown names are not stored, while a known catalog name outside the grant may be
+stored. Site IDs are stored only when they match a configured site.
+
+The payload permits only non-negative integer ID fields (`id`, `*_id`, `parent`, `author`, `post`, `featured_media`) and
+these tool/argument pairs: `search` on `wp_list_posts`, `wp_list_pages`, `wp_list_media`, `wp_list_users`,
+`wp_list_categories`, and `wp_list_tags`; `term` on `wp_search_site`; `keywords` on `wp_seo_track_serp`; and
+`seedKeyword` on `wp_seo_keyword_research`. ID arrays are capped at 50, search arrays at 20, and search strings at 256
+characters with a truncation flag. It does not store result bodies, error messages, raw User-Agent headers, titles,
+content, excerpts, slugs, URLs, emails, passwords, file paths, or SEOPress target-keyword metadata. Search text can
+contain client details and is confidential. Retention runs when the writer starts and hourly thereafter. Database
+startup failures do not stop the HTTP service; initialization retries with backoff. Writer counters distinguish
+`init_failures`, `pool_errors`, `failed_batches`, and `failed_events`; queued events discarded during shutdown before
+initialization count as failed events. `/healthz` and the aggregate report expose the counters. Stdio mode does not load
+the PostgreSQL writer.
 
 ### Rollout
 

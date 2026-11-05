@@ -165,6 +165,7 @@
     "express": "^5.3.0",
     "googleapis": "^171.4.0",
     "jose": "^6.2.15",
+    "pg": "^8.23.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -174,6 +175,7 @@
     "@semantic-release/git": "^10.0.1",
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.3",
+    "@types/pg": "^8.23.1",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
     "@vitest/coverage-v8": "^4.1.1",

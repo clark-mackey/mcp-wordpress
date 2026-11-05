@@ -13,6 +13,7 @@ import {
   wantsContentView,
 } from "./format.js";
 import { parseId, parseIdAndForce, toolParams } from "./params.js";
+import { countedText } from "@/server/toolResult.js";
 
 /**
  * Provides tools for managing pages on a WordPress site.
@@ -207,7 +208,7 @@ export class PageTools {
     try {
       const pages = await client.getPages(queryParams);
       if (pages.length === 0) {
-        return "No pages found matching the criteria.";
+        return countedText("No pages found matching the criteria.", 0);
       }
       const content =
         `Found ${pages.length} pages:\n\n` +
@@ -217,7 +218,7 @@ export class PageTools {
               `- ID ${p.id}: **${displayTitle(p.title.rendered)}** (${p.status})\n  Link: ${p.link}\n  Last modified: ${formatModified(p)}`,
           )
           .join("\n");
-      return content;
+      return countedText(content, pages.length);
     } catch (_error) {
       preserveToolError("Failed to list pages", _error);
     }

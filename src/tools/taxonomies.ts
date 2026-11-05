@@ -4,6 +4,7 @@ import { CreateCategoryRequest, CreateTagRequest, UpdateCategoryRequest, UpdateT
 import { preserveToolError } from "@/utils/error.js";
 import { htmlToPlainText } from "@/utils/htmlText.js";
 import { pageHint, parseId, toolParams } from "./params.js";
+import { countedText } from "@/server/toolResult.js";
 
 /**
  * Provides tools for managing taxonomies (categories and tags) on a WordPress site.
@@ -211,13 +212,13 @@ export class TaxonomyTools {
     try {
       const categories = await client.getCategories(queryParams);
       if (categories.length === 0) {
-        return "No categories found.";
+        return countedText("No categories found.", 0);
       }
       const content =
         `Found ${categories.length} categories:\n\n` +
         categories.map((c) => `- ID ${c.id}: **${htmlToPlainText(c.name)}** (Posts: ${c.count})`).join("\n") +
         pageHint(categories.length, params);
-      return content;
+      return countedText(content, categories.length);
     } catch (_error) {
       preserveToolError("Failed to list categories", _error);
     }
@@ -275,13 +276,13 @@ export class TaxonomyTools {
     try {
       const tags = await client.getTags(queryParams);
       if (tags.length === 0) {
-        return "No tags found.";
+        return countedText("No tags found.", 0);
       }
       const content =
         `Found ${tags.length} tags:\n\n` +
         tags.map((t) => `- ID ${t.id}: **${htmlToPlainText(t.name)}** (Posts: ${t.count})`).join("\n") +
         pageHint(tags.length, params);
-      return content;
+      return countedText(content, tags.length);
     } catch (_error) {
       preserveToolError("Failed to list tags", _error);
     }

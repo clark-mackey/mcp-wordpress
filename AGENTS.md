@@ -25,7 +25,9 @@ constructor injection; App Passwords, JWT, Basic, and API Key are configurable v
 Cookie auth is also implemented but is client/programmatic-only (see Authentication below). **Tools**: Posts(6) Pages(6)
 Media(5) Users(6) Comments(7) Taxonomies(10) Site(3) Auth(6) Cache(4) Performance(6) SEO(11) SEOPress(10) Redirection(6)
 Revisions(1) System(1) ContentEdit(1) RestRead(1) = 90. **Key files**: `src/client/api.ts`,
-`src/server/ToolRegistry.ts`, `src/tools/`, `src/config/ServerConfiguration.ts`, `src/utils/logger.ts`.
+`src/server/ToolRegistry.ts`, `src/tools/`, `src/config/ServerConfiguration.ts`, `src/utils/logger.ts`. Hosted HTTP mode
+can optionally queue sanitized per-call usage events to PostgreSQL and expose an authenticated aggregate report; stdio
+mode does not load the usage store.
 
 Full per-directory contracts live in the Child DOX Index below — read the applicable child doc before editing.
 

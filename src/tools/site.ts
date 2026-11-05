@@ -2,6 +2,7 @@ import { WordPressClient } from "@/client/api.js";
 import type { MCPToolSchema } from "@/types/mcp.js";
 import { WordPressApplicationPassword } from "@/types/wordpress.js";
 import { preserveToolError } from "@/utils/error.js";
+import { countedText } from "@/server/toolResult.js";
 import { htmlToPlainText } from "@/utils/htmlText.js";
 
 /**
@@ -219,7 +220,7 @@ export class SiteTools {
       };
       const results = type ? await client.search(term, ["post"], subtypes[type]) : await client.search(term);
       if (results.length === 0) {
-        return `No results found for "${term}".`;
+        return countedText(`No results found for "${term}".`, 0);
       }
       const content =
         `Found ${results.length} results for "${term}":\n\n` +
@@ -231,7 +232,7 @@ export class SiteTools {
             return `- [${r.type}] ${label}\n  Link: ${r.url}`;
           })
           .join("\n");
-      return content;
+      return countedText(content, results.length);
     } catch (_error) {
       preserveToolError("Failed to perform search", _error);
     }

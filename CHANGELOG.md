@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- Optional PostgreSQL usage events and an authenticated aggregate report for hosted HTTP mode.
+
 - Optional hosted HTTP transport with authenticated, grant-filtered tools, health checks, per-principal concurrency
   limits, in-memory site configuration, graceful shutdown, and Railway service settings. Hosted local file uploads are
   refused; stdio stays the default.

@@ -4,6 +4,7 @@ import { CreateUserRequest, UpdateUserRequest, UserQueryParams } from "@/types/w
 import { preserveToolError } from "@/utils/error.js";
 import { WordPressDataStreamer, StreamingUtils, StreamingResult } from "@/utils/streaming.js";
 import { parseId, toolParams } from "./params.js";
+import { countedText } from "@/server/toolResult.js";
 
 /**
  * Provides tools for managing users on a WordPress site.
@@ -165,7 +166,7 @@ export class UserTools {
     try {
       const users = await client.getUsers(params);
       if (users.length === 0) {
-        return "No users found matching the criteria.";
+        return countedText("No users found matching the criteria.", 0);
       }
 
       // Use streaming for large user result sets (>30 users)
@@ -180,7 +181,7 @@ export class UserTools {
           streamResults.push(result);
         }
 
-        return StreamingUtils.formatStreamingResponse(streamResults, "users");
+        return countedText(StreamingUtils.formatStreamingResponse(streamResults, "users"), users.length);
       }
 
       // Enhanced user information with comprehensive details
@@ -239,7 +240,7 @@ export class UserTools {
             );
           })
           .join("\n\n");
-      return content;
+      return countedText(content, users.length);
     } catch (_error) {
       preserveToolError("Failed to list users", _error);
     }

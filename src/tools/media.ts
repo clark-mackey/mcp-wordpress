@@ -5,6 +5,7 @@ import { preserveToolError } from "@/utils/error.js";
 import { displayTitle, htmlToPlainText } from "@/utils/htmlText.js";
 import { validateFilePath } from "@/utils/validation/security.js";
 import { parseId, parseIdAndForce, toolParams } from "./params.js";
+import { countedText } from "@/server/toolResult.js";
 
 /**
  * Comprehensive media management tools for WordPress sites.
@@ -197,14 +198,14 @@ export class MediaTools {
     try {
       const media = await client.getMedia(queryParams);
       if (media.length === 0) {
-        return "No media items found matching the criteria.";
+        return countedText("No media items found matching the criteria.", 0);
       }
       const content =
         `Found ${media.length} media items:\n\n` +
         media
           .map((m) => `- ID ${m.id}: **${displayTitle(m.title.rendered)}** (${m.mime_type})\n  Link: ${m.source_url}`)
           .join("\n");
-      return content;
+      return countedText(content, media.length);
     } catch (_error) {
       preserveToolError("Failed to list media", _error);
     }

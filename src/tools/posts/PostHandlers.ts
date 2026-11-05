@@ -14,6 +14,7 @@ import { validateId, validatePaginationParams, validatePostParams } from "@/util
 import { countWords, displayTitle, htmlToPlainText } from "@/utils/htmlText.js";
 import { WordPressDataStreamer, StreamingUtils, StreamingResult } from "@/utils/streaming.js";
 import { ContentViewOptions, contentView, formatModified, wantsContentView } from "../format.js";
+import { countedText, failedText } from "@/server/toolResult.js";
 
 export function buildListParams(params: PostQueryParams): PostQueryParams {
   if (!params || typeof params !== "object") {
@@ -139,10 +140,7 @@ export function postsPaginationNote(count: number, params: PostQueryParams): str
 /**
  * Handles listing WordPress posts with advanced filtering and pagination
  */
-export async function handleListPosts(
-  client: WordPressClient,
-  params: PostQueryParams,
-): Promise<WordPressPost[] | string> {
+export async function handleListPosts(client: WordPressClient, params: PostQueryParams): Promise<string> {
   try {
     const sanitizedParams = buildListParams(params);
 
@@ -150,7 +148,10 @@ export async function handleListPosts(
     if (posts.length === 0) {
       const searchInfo = sanitizedParams.search ? ` matching "${sanitizedParams.search}"` : "";
       const statusInfo = sanitizedParams.status ? ` with status "${sanitizedParams.status}"` : "";
-      return `No posts found${searchInfo}${statusInfo}. Try adjusting your search criteria or check if posts exist.`;
+      return countedText(
+        `No posts found${searchInfo}${statusInfo}. Try adjusting your search criteria or check if posts exist.`,
+        0,
+      );
     }
 
     // Use streaming for large result sets (>50 posts)
@@ -164,9 +165,10 @@ export async function handleListPosts(
       })) {
         streamResults.push(result);
       }
-      return (
+      return countedText(
         StreamingUtils.formatStreamingResponse(streamResults, "posts") +
-        postsPaginationNote(posts.length, sanitizedParams)
+          postsPaginationNote(posts.length, sanitizedParams),
+        posts.length,
       );
     }
 
@@ -218,7 +220,10 @@ export async function handleListPosts(
     const categoryMap = new Map(categories.map((c) => [c.id, c.name]));
     const tagMap = new Map(tags.map((t) => [t.id, t.name]));
 
-    return formatPostsResponse(posts, siteUrl, sanitizedParams, authorMap, categoryMap, tagMap);
+    return countedText(
+      formatPostsResponse(posts, siteUrl, sanitizedParams, authorMap, categoryMap, tagMap),
+      posts.length,
+    );
   } catch (_error) {
     preserveToolError("Failed to list posts", _error);
   }
@@ -461,7 +466,7 @@ export async function handleDeletePost(
 
       return response;
     } else {
-      return `Failed to delete post with ID ${params.id}. It may not exist or you may not have permission.`;
+      return failedText(`Failed to delete post with ID ${params.id}. It may not exist or you may not have permission.`);
     }
   } catch (_error) {
     if (_error instanceof Error && _error.message.includes("404")) {

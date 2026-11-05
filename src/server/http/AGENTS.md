@@ -6,8 +6,8 @@ Optional stateless HTTP service selected with `MCP_TRANSPORT=http`; stdio remain
 
 ## Ownership
 
-Owns `app.ts`, `runtime.ts`, and the transport/auth interface `contract.ts`. Authentication implementation belongs to
-`auth/` and must satisfy `HostedAuth`.
+Owns `app.ts`, `runtime.ts`, the transport/auth interface `contract.ts`, and optional PostgreSQL usage recording in
+`usage/`. Authentication implementation belongs to `auth/` and must satisfy `HostedAuth`.
 
 ## Local Contracts
 
@@ -19,9 +19,11 @@ Owns `app.ts`, `runtime.ts`, and the transport/auth interface `contract.ts`. Aut
 - Authenticate POST `/mcp`; GET and DELETE return 405. Close each MCP server/transport when its response closes.
 - Hold at most four tool calls per principal. A disconnect does not free a running tool's slot until it finishes.
 - Send generic JSON error responses without exception details; log internal failures.
-- `/healthz` returns package version and configured site count without WordPress requests.
+- `/healthz` returns package version, configured site count, and usage-writer status without WordPress requests.
+- Usage recording is HTTP-only and optional. Keep its bounded queue non-blocking and failure-isolated; report access is
+  restricted to the configured reviewer and every report response uses `Cache-Control: no-store`.
 - Validate `PUBLIC_BASE_URL` and `PORT` before startup; load auth only in HTTP mode. SIGTERM drains HTTP connections for
-  at most 25 seconds.
+  at most 25 seconds, then drains usage writes for at most 5 seconds.
 
 ## Work Guidance
 
@@ -33,4 +35,4 @@ Keep `contract.ts` stable across transport and auth changes. Tests inject fake `
 
 ## Child DOX Index
 
-None.
+- `usage/AGENTS.md` — hosted event privacy allowlist, PostgreSQL writer, retention, and aggregate reporting

@@ -14,12 +14,15 @@ import { LoggerFactory } from "./utils/logger.js";
 import { ConfigHelpers } from "./config/Config.js";
 import { McpConfigType } from "./config/ServerConfiguration.js";
 import { getVersion, getDisplayVersion } from "./utils/version.js";
+import { getUsageConfiguration } from "./server/http/usage/config.js";
+import type { UsageRecorder } from "./server/http/usage/types.js";
 
 // --- Main Server Class ---
 class MCPWordPressServer {
   private server: McpServer;
   private wordpressClients: Map<string, WordPressClient> = new Map();
   private httpServer: HttpServer | undefined;
+  private usage: UsageRecorder | undefined;
   private initialized: boolean = false;
   private siteConfigs: SiteConfig[] = [];
   private toolRegistry!: ToolRegistry;
@@ -77,11 +80,19 @@ class MCPWordPressServer {
         env: process.env,
         knownToolNames: this.toolRegistry.getToolNames(),
       });
+      const usageConfig = getUsageConfiguration(auth.principals);
+      if (usageConfig) {
+        const { PostgresUsageStore } = await import("./server/http/usage/store.js");
+        this.usage = new PostgresUsageStore(usageConfig);
+      }
       const app = createHostedApp({
         ...hostedConfig,
         auth,
         wordpressClients: this.wordpressClients,
         toolRegistry: this.toolRegistry,
+        usage: this.usage,
+        usageReviewer: usageConfig?.reviewer,
+        usageRetentionDays: usageConfig?.retentionDays,
       });
       this.httpServer = await new Promise<HttpServer>((resolve, reject) => {
         const listener = app.listen(hostedConfig.port, () => resolve(listener));
@@ -151,6 +162,7 @@ class MCPWordPressServer {
   async shutdown() {
     this.logger.info("Shutting down MCP WordPress Server...");
     if (this.httpServer) await drainHostedServer(this.httpServer);
+    if (this.usage) await this.usage.shutdown(5000);
     await this.server.close();
     this.logger.info("Server stopped");
   }

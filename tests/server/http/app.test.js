@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { URL } from "node:url";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Duplex } from "node:stream";
-import { createHostedApp } from "@/server/http/app.js";
+import { createHostedApp, createUsageExecutionHooks } from "@/server/http/app.js";
 import { HOSTED_ADMIN_TOOLS } from "@/server/http/contract.js";
 import { ToolRegistry } from "@/server/ToolRegistry.js";
+import { countedText } from "@/server/toolResult.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const ACCEPT = "application/json, text/event-stream";
@@ -27,17 +28,23 @@ function fakeAuth(principals) {
   };
 }
 
-function startApp(principals, wordpressClients = new Map()) {
+function startApp(principals, wordpressClients = new Map(), options = {}) {
   return createHostedApp({
     publicBaseUrl: new URL("https://mcp.example.test"),
     auth: fakeAuth(principals),
     wordpressClients,
+    ...options,
   });
 }
 
-async function request(app, path, { method = "GET", token, body, host = "mcp.example.test", onResponse } = {}) {
+async function request(
+  app,
+  path,
+  { method = "GET", token, body, host = "mcp.example.test", userAgent, onResponse } = {},
+) {
   const headers = { accept: ACCEPT, host };
   if (token) headers.authorization = `Bearer ${token}`;
+  if (userAgent !== undefined) headers["user-agent"] = userAgent;
   if (body !== undefined) headers["content-type"] = "application/json";
   const bodyText = body === undefined ? "" : typeof body === "string" ? body : JSON.stringify(body);
   if (bodyText) headers["content-length"] = String(Buffer.byteLength(bodyText));
@@ -122,6 +129,7 @@ describe("hosted HTTP app", () => {
       ok: true,
       version: JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version,
       sites: 2,
+      usage: { enabled: false },
     });
 
     const all = await request(app, "/mcp", { method: "POST", token: "all", body: rpc("tools/list") });
@@ -201,12 +209,14 @@ describe("hosted HTTP app", () => {
       resolvePosts = resolve;
     });
     const client = { getPosts: vi.fn(() => posts), getSiteUrl: () => "https://wp.example.test" };
+    const usage = { enqueue: vi.fn(), counters: () => ({}), report: vi.fn(), shutdown: vi.fn() };
     app = startApp(
       [
         { id: "busy", tools: { allow: ["wp_list_posts"] } },
         { id: "other", tools: { allow: ["wp_list_posts"] } },
       ],
       new Map([["site", client]]),
+      { usage },
     );
     const call = (token, id) =>
       request(app, "/mcp", {
@@ -218,6 +228,14 @@ describe("hosted HTTP app", () => {
     await vi.waitFor(() => expect(client.getPosts).toHaveBeenCalledTimes(4));
     const limited = await call("busy", 5);
     expect(limited.response.statusCode).toBe(429);
+    expect(usage.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "rejection",
+        principalId: "busy",
+        toolName: null,
+        outcome: "concurrency_limited",
+      }),
+    );
     const independent = call("other", 6);
     await vi.waitFor(() => expect(client.getPosts).toHaveBeenCalledTimes(5));
     resolvePosts([]);
@@ -225,6 +243,23 @@ describe("hosted HTTP app", () => {
     expect(activeResults.every((result) => result.response.statusCode === 200)).toBe(true);
     const afterRelease = await call("busy", 7);
     expect(afterRelease.response.statusCode).toBe(200);
+  });
+
+  it("records a request closed before tool execution as cancelled", () => {
+    const events = [];
+    const hooks = createUsageExecutionHooks({
+      principalId: "alice",
+      client: { name: null, version: null },
+      bootId: "00000000-0000-4000-8000-000000000000",
+      version: "0",
+      isConfiguredSite: (siteId) => siteId === "site1",
+      isReleased: () => true,
+      markStarted: vi.fn(),
+      release: vi.fn(),
+      enqueue: (event) => events.push(event),
+    });
+    expect(() => hooks.start({ toolName: "wp_list_posts", args: { site: "site1" } })).toThrow("Request closed");
+    expect(events[0]).toMatchObject({ outcome: "cancelled", errorClass: "REQUEST_CLOSED", resultBytes: 0 });
   });
   it("holds a disconnected call's slot until the underlying tool completes", async () => {
     let resolvePosts;
@@ -267,5 +302,246 @@ describe("hosted HTTP app", () => {
     } finally {
       prepare.mockRestore();
     }
+  });
+
+  it("records tool outcomes, allowlisted arguments, and recognized clients", async () => {
+    const events = [];
+    const usage = { enqueue: (event) => events.push(event), counters: () => ({}), report: vi.fn(), shutdown: vi.fn() };
+    const client = {
+      getPosts: vi.fn().mockResolvedValue([]),
+      getSiteUrl: () => "https://example.test",
+    };
+    app = startApp([{ id: "alice", tools: { allow: ["wp_list_posts"] } }], new Map([["site1", client]]), {
+      usage,
+    });
+    const result = await request(app, "/mcp", {
+      method: "POST",
+      token: "alice",
+      userAgent: "claude-code/1.2.3 extra",
+      body: rpc("tools/call", {
+        name: "wp_list_posts",
+        arguments: {
+          search: `${"x".repeat(260)} `,
+        },
+      }),
+    });
+    expect(result.response.statusCode).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventType: "tool_call",
+      principalId: "alice",
+      clientName: "claude_code",
+      clientVersion: "1.2.3",
+      toolName: "wp_list_posts",
+      siteId: "site1",
+      outcome: "success",
+      errorClass: null,
+      returnedCount: 0,
+    });
+    expect(events[0].resultBytes).toBeGreaterThan(0);
+    expect(events[0].payload).toEqual({
+      search_text: { search: "x".repeat(256) },
+      search_text_truncated: true,
+    });
+  });
+
+  it("records site, tool-reported, and thrown failures without raw arguments", async () => {
+    const events = [];
+    const usage = { enqueue: (event) => events.push(event), counters: () => ({}), report: vi.fn(), shutdown: vi.fn() };
+    const failingRegistry = new ToolRegistry(new McpServer({ name: "test", version: "0" }), new Map([["site1", {}]]));
+    failingRegistry.registerAllTools([
+      {
+        name: "wp_test_failure",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "number" },
+            content: { type: "string" },
+            title: { type: "string" },
+            slug: { type: "string" },
+            password: { type: "string" },
+            file_path: { type: "string" },
+          },
+        },
+        handler: async () => ({ success: false }),
+      },
+      {
+        name: "wp_test_error",
+        inputSchema: { type: "object", properties: {} },
+        handler: async () => {
+          throw new TypeError("not recorded");
+        },
+      },
+      {
+        name: "wp_test_array",
+        inputSchema: { type: "object", properties: {} },
+        handler: async () => [{ id: 1 }, { id: 2 }],
+      },
+    ]);
+    app = startApp([{ id: "alice", tools: { all: true } }], new Map([["site1", {}]]), {
+      usage,
+      toolRegistry: failingRegistry,
+    });
+    await request(app, "/mcp", {
+      method: "POST",
+      token: "alice",
+      body: rpc("tools/call", {
+        name: "wp_test_failure",
+        arguments: { id: 4, content: "x", title: "x", slug: "x", password: "x", file_path: "/x" },
+      }),
+    });
+    await request(app, "/mcp", {
+      method: "POST",
+      token: "alice",
+      body: rpc("tools/call", { name: "wp_test_error", arguments: {} }, 2),
+    });
+    await request(app, "/mcp", {
+      method: "POST",
+      token: "alice",
+      body: rpc("tools/call", { name: "wp_test_array", arguments: {} }, 3),
+    });
+    expect(events.map(({ outcome }) => outcome)).toEqual(["tool_failure", "error", "success"]);
+    expect(events[0].errorClass).toBe("tool_reported_failure");
+    expect(events[0].payload).toEqual({ ids: { id: 4 } });
+    expect(events[1].errorClass).toBe("TypeError");
+    expect(events[2]).toMatchObject({ returnedCount: 2, errorClass: null });
+
+    const missing = startApp(
+      [{ id: "alice", tools: { allow: ["wp_list_posts"] } }],
+      new Map([
+        ["site1", {}],
+        ["site2", {}],
+      ]),
+      { usage },
+    );
+    await request(missing, "/mcp", {
+      method: "POST",
+      token: "alice",
+      body: rpc("tools/call", { name: "wp_list_posts", arguments: { site: "missing" } }, 4),
+    });
+    expect(events.at(-1)).toMatchObject({ outcome: "site_not_found", errorClass: "site_not_found", siteId: null });
+  });
+
+  it("does not record caller-supplied site strings on dispatched or cancelled calls", async () => {
+    const events = [];
+    const usage = { enqueue: (event) => events.push(event), counters: () => ({}), report: vi.fn(), shutdown: vi.fn() };
+    app = startApp(
+      [{ id: "alice", tools: { allow: ["wp_list_posts"] } }],
+      new Map([["site1", { getPosts: vi.fn().mockResolvedValue([]), getSiteUrl: () => "https://example.test" }]]),
+      { usage },
+    );
+    await request(app, "/mcp", {
+      method: "POST",
+      token: "alice",
+      body: rpc("tools/call", { name: "wp_list_posts", arguments: { site: "https://not-a-site.example/" } }),
+    });
+    expect(events.at(-1).siteId).toBeNull();
+
+    const hooks = createUsageExecutionHooks({
+      principalId: "alice",
+      client: { name: null, version: null },
+      bootId: "00000000-0000-4000-8000-000000000000",
+      version: "0",
+      isConfiguredSite: () => false,
+      isReleased: () => true,
+      markStarted: vi.fn(),
+      release: vi.fn(),
+      enqueue: (event) => events.push(event),
+    });
+    expect(() => hooks.start({ toolName: "wp_list_posts", args: { site: "x".repeat(1_000_000) } })).toThrow();
+    expect(events.at(-1).siteId).toBeNull();
+  });
+
+  it("records SDK-rejected tool calls exactly once without preserving unknown names", async () => {
+    const events = [];
+    const usage = { enqueue: (event) => events.push(event), counters: () => ({}), report: vi.fn(), shutdown: vi.fn() };
+    app = startApp(
+      [{ id: "limited", tools: { allow: ["wp_list_posts"] } }],
+      new Map([["site1", { getPosts: vi.fn().mockResolvedValue([]), getSiteUrl: () => "https://example.test" }]]),
+      { usage },
+    );
+    for (const [name, args] of [
+      ["wp_list_posts", { unsupported: true, "pasted text here_id": 7, site: "https://not-configured.test" }],
+      ["does_not_exist", {}],
+      ["wp_get_post", { id: 1 }],
+    ]) {
+      await request(app, "/mcp", {
+        method: "POST",
+        token: "limited",
+        body: rpc("tools/call", { name, arguments: args }),
+      });
+    }
+    expect(events).toHaveLength(3);
+    expect(events[0]).toMatchObject({
+      outcome: "not_dispatched",
+      toolName: "wp_list_posts",
+      errorClass: "invalid_arguments",
+      siteId: null,
+      payload: {},
+    });
+    expect(events[1]).toMatchObject({ outcome: "not_dispatched", toolName: null, errorClass: "unknown_tool" });
+    expect(events[2]).toMatchObject({ outcome: "not_dispatched", toolName: "wp_get_post", errorClass: "unknown_tool" });
+  });
+
+  it("unwraps counted text without changing the client response", async () => {
+    const events = [];
+    const usage = { enqueue: (event) => events.push(event), counters: () => ({}), report: vi.fn(), shutdown: vi.fn() };
+    const registry = new ToolRegistry(new McpServer({ name: "test", version: "0" }), new Map([["site1", {}]]));
+    registry.registerAllTools([
+      {
+        name: "wp_test_counted",
+        inputSchema: { type: "object", properties: {} },
+        handler: async () => countedText("byte-identical", 7),
+      },
+    ]);
+    app = startApp([{ id: "alice", tools: { all: true } }], new Map([["site1", {}]]), {
+      usage,
+      toolRegistry: registry,
+    });
+    const result = await request(app, "/mcp", {
+      method: "POST",
+      token: "alice",
+      body: rpc("tools/call", { name: "wp_test_counted", arguments: {} }),
+    });
+    expect(result.payload.result.content[0].text).toBe("byte-identical");
+    expect(events[0].returnedCount).toBe(7);
+  });
+
+  it("gates usage reports and always disables caching", async () => {
+    const usage = {
+      enqueue: vi.fn(),
+      counters: () => ({ enqueued: 2, init_failures: 3, pool_errors: 4 }),
+      report: vi.fn().mockResolvedValue({ total_events: 2 }),
+      shutdown: vi.fn(),
+    };
+    app = startApp(
+      [
+        { id: "alice", tools: { all: true } },
+        { id: "reviewer", tools: { all: true } },
+      ],
+      new Map(),
+      { usage, usageReviewer: "reviewer" },
+    );
+    const health = await request(app, "/healthz");
+    expect(health.payload.usage).toMatchObject({ enabled: true, init_failures: 3, pool_errors: 4 });
+    for (const [token, status] of [
+      [undefined, 401],
+      ["alice", 403],
+    ]) {
+      const result = await request(app, "/admin/usage/report", { token });
+      expect(result.response.statusCode).toBe(status);
+      expect(result.response.getHeader("cache-control")).toBe("no-store");
+    }
+    const bad = await request(app, "/admin/usage/report?since=2026-01-01", { token: "reviewer" });
+    expect(bad.response.statusCode).toBe(400);
+    expect(bad.response.getHeader("cache-control")).toBe("no-store");
+    const good = await request(app, "/admin/usage/report", { token: "reviewer" });
+    expect(good.response.statusCode).toBe(200);
+    expect(good.payload).toEqual({ total_events: 2 });
+    expect(good.response.getHeader("cache-control")).toBe("no-store");
+    usage.report.mockRejectedValueOnce(new Error("down"));
+    const down = await request(app, "/admin/usage/report", { token: "reviewer" });
+    expect(down.response.statusCode).toBe(503);
+    expect(down.response.getHeader("cache-control")).toBe("no-store");
   });
 });

@@ -157,8 +157,24 @@ that two processes never run simultaneously during deployment. See
 [deployment teardown](https://docs.railway.com/deployments/deployment-teardown).
 
 `/healthz` answers any `Host`, because Railway's probe sends `Host: healthcheck.railway.app`; it returns only the
-version and site count. Every other route accepts only the `PUBLIC_BASE_URL` host. See
+version, site count, and aggregate usage-writer counters. Every other route accepts only the `PUBLIC_BASE_URL` host. See
 [healthcheck hostname](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname).
+
+Hosted usage recording is optional. Set `MCP_USAGE_DATABASE_URL` to a PostgreSQL connection string to record one row per
+attempted tool call, including SDK validation/unknown-tool rejections, plus concurrency-limit rejections.
+`MCP_USAGE_RETENTION_DAYS` is an integer from 1 to 3650 (default `90`). Set `MCP_USAGE_REVIEWER` to the ID of a
+configured principal to enable `GET /admin/usage/report?since=&until=` for that principal; without it the report route
+returns 404. The route accepts zoned ISO timestamps, defaults to the last 30 days, and permits at most 92 days.
+
+Records contain principal, recognized client family/version, tool and resolved site IDs, fixed outcomes and error
+classes, timing/result-size/count metadata, non-negative integer ID arguments, and per-tool allowlisted search terms:
+`search` for post/page/media/user/category/tag lists, `term` for `wp_search_site`, `keywords` for `wp_seo_track_serp`,
+and `seedKeyword` for `wp_seo_keyword_research`. They never contain result bodies, error messages, raw User-Agent
+values, titles, content, excerpts, slugs, URLs, emails, passwords, file paths, or SEOPress target-keyword metadata.
+Search text can contain client details and must be treated as confidential. Rows older than the retention window are
+removed at startup and hourly. If PostgreSQL is unavailable, requests continue normally while the bounded writer retries
+initialization and reports `init_failures`, `pool_errors`, `failed_batches`, `failed_events`, queue drops, commits, and
+retention counters through `/healthz` and the aggregate report. Stdio mode never loads the PostgreSQL writer.
 
 ## 📋 Configuration
 

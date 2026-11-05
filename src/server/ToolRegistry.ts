@@ -10,6 +10,7 @@ import { ConfigurationValidator } from "@/config/ConfigurationSchema.js";
 import type { MCPToolSchema, JSONSchemaProperty } from "@/types/mcp.js";
 import { isUnsafePlainText, isUnsafeWordPressContent } from "@/security/InputValidator.js";
 import { LOCAL_FILE_ACCESS_ERROR_CODES } from "@/utils/validation/security.js";
+import { captureReturnedCount } from "./toolResult.js";
 
 // Parameter names that carry WordPress post/page/comment body content — these legitimately
 // contain rich HTML and Gutenberg block markup, so they're validated against the narrower
@@ -22,8 +23,28 @@ const WORDPRESS_CONTENT_PARAM_NAMES = new Set(["content", "excerpt", "old_string
  * Interface for tool definition
  */
 export interface ToolExecutionHooks {
-  start(): void;
-  end(): void;
+  start(context: { toolName: string; args: Record<string, unknown> }): void;
+  end(event: ToolExecutionEvent): void;
+}
+
+export type ToolExecutionOutcome =
+  | "success"
+  | "tool_failure"
+  | "site_required"
+  | "site_not_found"
+  | "auth_failed"
+  | "permission_denied"
+  | "error";
+
+export interface ToolExecutionEvent {
+  toolName: string;
+  args: Record<string, unknown>;
+  siteId: string | null;
+  outcome: ToolExecutionOutcome;
+  errorClass: string | null;
+  durationMs: number;
+  resultBytes: number;
+  returnedCount: number | null;
 }
 
 export interface ToolDefinition {
@@ -86,6 +107,16 @@ function isFailedToolResult(result: unknown): boolean {
  */
 function codedFailure(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+function errorClass(error: Error | undefined): string | null {
+  if (!error) return null;
+  const code = (error as Error & { code?: unknown }).code;
+  const candidate =
+    typeof code === "string" && ["site_required", "site_not_found", "tool_reported_failure"].includes(code)
+      ? code
+      : error.constructor.name;
+  return candidate.length <= 64 && /^[A-Za-z0-9_]+$/.test(candidate) ? candidate : null;
 }
 
 export class ToolRegistry {
@@ -216,7 +247,8 @@ export class ToolRegistry {
         tool.name,
         { description: tool.description || `WordPress tool: ${tool.name}`, inputSchema },
         async (args: Record<string, unknown>) => {
-          execution?.start();
+          execution?.start({ toolName: tool.name, args });
+          const startedAt = Date.now();
           // Track from entry so every dispatched call is counted, including ones that fail before the handler
           // runs (unknown site, missing `site`). `succeeded` flips only when the handler returns a good result;
           // every other exit — early error returns and the catch below — is recorded as a failure.
@@ -228,6 +260,9 @@ export class ToolRegistry {
           );
           let succeeded = false;
           let failure: Error | undefined;
+          let outcome: ToolExecutionOutcome | undefined;
+          let resultText: string | undefined;
+          let returnedCount: number | null = null;
           // Declared outside the try so the catch can name the site that was actually resolved
           // (selectBestSite() may pick a configured ID other than "default" when `site` is omitted).
           let siteId = args.site ?? this.defaultSiteId;
@@ -237,11 +272,13 @@ export class ToolRegistry {
               const availableSites = Array.from(this.wordpressClients.keys());
               failure = codedFailure("site_required", "site parameter required");
               const error = ErrorHandlers.siteParameterMissing(availableSites);
+              outcome = "site_required";
+              resultText = error.toString();
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: error.toString(),
+                    text: resultText,
                   },
                 ],
                 isError: true,
@@ -259,11 +296,13 @@ export class ToolRegistry {
               const availableSites = Array.from(this.wordpressClients.keys());
               failure = codedFailure("site_not_found", "site not found");
               const error = ErrorHandlers.siteNotFound(siteId as string, availableSites);
+              outcome = "site_not_found";
+              resultText = error.toString();
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: error.toString(),
+                    text: resultText,
                   },
                 ],
                 isError: true,
@@ -271,28 +310,36 @@ export class ToolRegistry {
             }
 
             // Call the tool handler with the client and parameters
-            const result = await tool.handler(client, args);
-            succeeded = !isFailedToolResult(result);
+            const captured = await captureReturnedCount(() => tool.handler(client, args));
+            const result = captured.result;
+            succeeded = !captured.failed && !isFailedToolResult(result);
+            returnedCount = captured.returnedCount ?? (Array.isArray(result) ? result.length : null);
+            resultText = typeof result === "string" ? result : JSON.stringify(result, null, 2);
             if (!succeeded) {
               failure = codedFailure("tool_reported_failure", "tool reported a failure");
+              outcome = "tool_failure";
+            } else {
+              outcome = "success";
             }
 
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+                  text: resultText,
                 },
               ],
             };
           } catch (_error) {
             failure = _error instanceof Error ? _error : undefined;
             if (this.isAuthenticationError(_error)) {
+              outcome = "auth_failed";
+              resultText = `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run connect again, which detects this and names the fix.`;
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: `Authentication failed for site '${String(siteId || "default")}'. Please check your credentials. If they are right, the host may be stripping the login header: run npm run connect again, which detects this and names the fix.`,
+                    text: resultText,
                   },
                 ],
                 isError: true,
@@ -300,11 +347,13 @@ export class ToolRegistry {
             }
 
             if (this.isPermissionDeniedError(_error)) {
+              outcome = "permission_denied";
+              resultText = this.formatPermissionDenied(tool, String(siteId || "default"), _error);
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: this.formatPermissionDenied(tool, String(siteId || "default"), _error),
+                    text: resultText,
                   },
                 ],
                 isError: true,
@@ -313,28 +362,41 @@ export class ToolRegistry {
 
             // Handle enhanced errors with suggestions
             if (_error instanceof EnhancedError) {
+              outcome = "error";
+              resultText = _error.toString();
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: _error.toString(),
+                    text: resultText,
                   },
                 ],
                 isError: true,
               };
             }
 
+            outcome = "error";
+            resultText = `Error: ${getErrorMessage(_error)}`;
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Error: ${getErrorMessage(_error)}`,
+                  text: resultText,
                 },
               ],
               isError: true,
             };
           } finally {
-            execution?.end();
+            execution?.end({
+              toolName: tool.name,
+              args,
+              siteId: typeof siteId === "string" && this.wordpressClients.has(siteId) ? siteId : null,
+              outcome: outcome ?? "error",
+              errorClass: errorClass(failure),
+              durationMs: Math.max(0, Date.now() - startedAt),
+              resultBytes: Buffer.byteLength(resultText ?? "", "utf8"),
+              returnedCount,
+            });
             if (tracker && executionId !== undefined) {
               tracker.endToolExecution(
                 executionId,

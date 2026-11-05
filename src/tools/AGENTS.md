@@ -112,6 +112,10 @@ WordPress, which defaults to 10 per page, and end a full page with a next-page n
 `postsPaginationNote()` for posts, including the >50-post streaming path). The note is the only signal that more results
 exist because the X-WP-Total header is not exposed to tools; never label a page's size as a site total.
 
+**Hosted returned counts**: handlers for search-capable tools publish their result count with `countedText()` or
+`withReturnedCount()` from `src/server/toolResult.ts`, including zero-result branches. The helper's async side channel
+must not change the handler's returned value or client-visible text; plain array results continue to use `length`.
+
 **Schema and descriptions are the contract**: where a tool checks required parameters in code (the SEO tools'
 `validateRequired()`), the list must not be stricter than its `inputSchema.required`, and a default named in a property
 description ("default: full") must be the one the code applies, and a documented parameter must change the result —

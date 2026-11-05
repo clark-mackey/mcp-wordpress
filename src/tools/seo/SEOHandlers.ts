@@ -19,6 +19,7 @@ import type {
   SERPTrackingResult,
   KeywordResearchResult,
 } from "@/types/seo.js";
+import { withReturnedCount } from "@/server/toolResult.js";
 
 let _seoTools: SEOTools | null = null;
 function getSeoTools(): SEOTools {
@@ -233,7 +234,9 @@ export async function handleTrackSERPPositions(
     if (args.searchEngine) params.searchEngine = args.searchEngine as string;
     if (args.location) params.location = args.location as string;
 
-    return await getSeoTools().trackSERPPositions(client, params);
+    const result = await getSeoTools().trackSERPPositions(client, params);
+    // Count keywords actually found; positions holds one entry per keyword tracked.
+    return withReturnedCount(result, (result.positions ?? []).filter((p) => p.estimatedPosition !== null).length);
   } catch (error) {
     logger.error("Failed to track SERP positions", { error, args });
     throw error;
@@ -258,7 +261,8 @@ export async function handleKeywordResearch(
     if (args.includeQuestions !== undefined) params.includeQuestions = args.includeQuestions as boolean;
     if (args.maxResults !== undefined) params.maxResults = args.maxResults as number;
 
-    return await getSeoTools().keywordResearch(client, params);
+    const result = await getSeoTools().keywordResearch(client, params);
+    return withReturnedCount(result, result.suggestions?.length ?? 0);
   } catch (error) {
     logger.error("Failed to perform keyword research", { error, args });
     throw error;
