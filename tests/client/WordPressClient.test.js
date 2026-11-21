@@ -591,6 +591,52 @@ describe("WordPressClient", () => {
     });
   });
 
+  describe("Absolute endpoint origin guard", () => {
+    it("should send same-origin absolute URLs with auth headers", async () => {
+      await client.get("https://test.example.com/wp-json/seopress/v1/posts/1");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://test.example.com/wp-json/seopress/v1/posts/1");
+      expect(options.headers.Authorization).toMatch(/^Basic /);
+    });
+
+    it.each([
+      ["another host", "https://evil.example.net/wp-json/wp/v2/posts"],
+      ["a www/non-www mismatch", "https://www.test.example.com/wp-json/wp/v2/posts"],
+      ["a lookalike host suffix", "https://test.example.com.evil.net/wp-json/wp/v2/posts"],
+      ["userinfo pointing elsewhere", "https://test.example.com@evil.example.net/wp-json/wp/v2/posts"],
+      ["a different port", "https://test.example.com:8443/wp-json/wp/v2/posts"],
+    ])("should reject %s without calling fetch", async (_label, endpoint) => {
+      const before = client.stats.totalRequests;
+
+      await expect(client.request("PUT", endpoint, { title: "x" })).rejects.toThrow(WordPressAPIError);
+      await expect(client.get(endpoint)).rejects.toThrow(/configured site origin https:\/\/test\.example\.com/);
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(client.stats.totalRequests).toBe(before);
+    });
+
+    it("should reject an http:// downgrade of the site host when insecure HTTP is allowed", async () => {
+      const original = process.env.ALLOW_INSECURE_HTTP;
+      process.env.ALLOW_INSECURE_HTTP = "true";
+      try {
+        await expect(client.get("http://test.example.com/wp-json/wp/v2/posts")).rejects.toThrow(WordPressAPIError);
+        expect(mockFetch).not.toHaveBeenCalled();
+      } finally {
+        if (original === undefined) delete process.env.ALLOW_INSECURE_HTTP;
+        else process.env.ALLOW_INSECURE_HTTP = original;
+      }
+    });
+
+    it("should leave relative endpoints on the site's REST API", async () => {
+      await client.get("//evil.example.net/posts");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe("https://test.example.com/wp-json/wp/v2/evil.example.net/posts");
+    });
+  });
+
   describe("Request Options", () => {
     it("should set correct headers", async () => {
       await client.get("posts");
