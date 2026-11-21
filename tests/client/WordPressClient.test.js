@@ -634,6 +634,63 @@ describe("WordPressClient", () => {
       }
     });
 
+    it("never follows a redirect with API-key auth, since fetch would forward X-API-Key", async () => {
+      const apiKeyClient = new WordPressClient({
+        baseUrl: "https://test.example.com",
+        auth: { method: "api-key", apiKey: "secret-key" },
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 302,
+        headers: { get: (name) => (name === "location" ? "https://elsewhere.example/wp-json/wp/v2/posts" : null) },
+      });
+
+      await expect(apiKeyClient.get("posts")).rejects.toMatchObject({ code: "REDIRECT_BLOCKED", statusCode: 302 });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][1].headers["X-API-Key"]).toBe("secret-key");
+      expect(mockFetch.mock.calls[0][1].redirect).toBe("manual");
+    });
+
+    it("never follows a redirect with cookie auth, since fetch would forward X-WP-Nonce", async () => {
+      const cookieClient = new WordPressClient({
+        baseUrl: "https://test.example.com",
+        auth: { method: "cookie", nonce: "nonce-123" },
+      });
+      await cookieClient.get("posts");
+      expect(mockFetch.mock.calls[0][1].headers["X-WP-Nonce"]).toBe("nonce-123");
+      expect(mockFetch.mock.calls[0][1].redirect).toBe("manual");
+    });
+
+    it("never follows a redirect when a caller passes a credential header in any case", async () => {
+      await client.request("GET", "posts", null, { headers: { "x-api-key": "caller-key" } });
+      expect(mockFetch.mock.calls[0][1].redirect).toBe("manual");
+    });
+
+    it("lets fetch follow redirects when only Authorization carries credentials", async () => {
+      await client.get("posts");
+      expect(mockFetch.mock.calls[0][1].redirect).toBeUndefined();
+    });
+
+    it("refuses redirects on the JWT token request so credentials are not resent", async () => {
+      const jwtClient = new WordPressClient({
+        baseUrl: "https://test.example.com",
+        auth: { method: "jwt", username: "testuser", password: "testpass", secret: "test-jwt-secret" },
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Map([["content-type", "application/json"]]),
+        json: vi.fn().mockResolvedValue({ token: "jwt-token-123" }),
+        text: vi.fn().mockResolvedValue('{"token": "jwt-token-123"}'),
+        arrayBuffer: vi.fn().mockResolvedValue(utf8Buf('{"token": "jwt-token-123"}')),
+      });
+
+      await jwtClient.authenticate();
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://test.example.com/wp-json/jwt-auth/v1/token");
+      expect(options.redirect).toBe("error");
+    });
+
     it("should handle custom headers", async () => {
       const customHeaders = { "X-Custom-Header": "test-value" };
 
