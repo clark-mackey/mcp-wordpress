@@ -298,6 +298,23 @@ export class WordPressClient implements IWordPressClient {
     }
   }
 
+  /**
+   * Validate an absolute request endpoint. Requests carry this site's auth headers,
+   * so besides the SSRF guard the URL must have the configured site's exact origin
+   * (protocol, host and port; www and non-www differ).
+   */
+  private validateSiteUrl(endpoint: string): string {
+    const url = this.validateAndSanitizeUrl(endpoint);
+    const requested = new URL(url).origin;
+    const site = new URL(this.baseUrl).origin;
+    if (requested !== site) {
+      throw new WordPressAPIError(
+        `Refusing to send credentials to ${requested}: absolute endpoints must use the configured site origin ${site}`,
+      );
+    }
+    return url;
+  }
+
   private getAuthFromEnv(): AuthConfig {
     const cfg = config();
     const wp = cfg.wordpress;
@@ -591,15 +608,15 @@ export class WordPressClient implements IWordPressClient {
     data: unknown = null,
     options: RequestOptions = {},
   ): Promise<RawResponse<T>> {
-    const timer = startTimer();
-    this._stats.totalRequests++;
-
     const cleanEndpoint = endpoint.replace(/^\/+/, "");
-    // Validate absolute URLs through the same SSRF guard as the site URL, keeping their query
+    // Absolute URLs pass the SSRF guard and must match the site origin; keep their query
     // string: plugin REST routes outside /wp/v2 (e.g. redirection/v1) take list filters there.
     const url = endpoint.startsWith("http")
-      ? `${this.validateAndSanitizeUrl(endpoint)}${new URL(endpoint).search}`
+      ? `${this.validateSiteUrl(endpoint)}${new URL(endpoint).search}`
       : `${this.apiUrl}/${cleanEndpoint}`;
+
+    const timer = startTimer();
+    this._stats.totalRequests++;
 
     const {
       headers: customHeaders,
