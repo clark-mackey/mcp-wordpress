@@ -27,16 +27,17 @@ same narrow-interface pattern. `src/client/managers/` (a parallel, unwired clien
 Basic), `authenticateWithJWT` (`api.ts:519`, POSTs to `${baseUrl}/wp-json/jwt-auth/v1/token`), API Key header
 (`api.ts:427-431`, `X-API-Key`, no handshake).
 
-**URL validation (SSRF/HTTPS)**: `validateAndSanitizeUrl` (constructor + any `request()` call whose endpoint starts with
-`http`) requires `https:` and rejects private/loopback/link-local/metadata hostnames via the shared
+**URL validation (SSRF/HTTPS)**: `validateAndSanitizeUrl` (constructor + any `request()` call whose endpoint has an
+`http:`/`https:` scheme, any case — `isAbsoluteHttpUrl`) requires `https:` and rejects private/loopback/link-local/metadata hostnames via the shared
 `isDisallowedHostname` helper (`src/utils/validation/network.ts`) — same policy as `ConfigurationSchema`'s `UrlSchema`
 (`src/config/AGENTS.md`). Escape hatches: `ALLOW_INSECURE_HTTP=true`, `ALLOW_PRIVATE_URLS=true`. Don't add a second
 hostname/protocol check here — extend the shared helper instead.
 
 **Absolute endpoints stay on the site** (`validateSiteUrl`): `requestRaw()` attaches the site's auth header to every
-request, so an endpoint starting with `http` must, after `validateAndSanitizeUrl`, have exactly the configured site's
+request, so an absolute endpoint (`isAbsoluteHttpUrl`, scheme matched case-insensitively) must, after `validateAndSanitizeUrl`, have exactly the configured site's
 origin (protocol, host, port — `www.` vs bare host and `http:` vs `https:` differ). Anything else throws
-`WordPressAPIError` before `fetch` runs or `stats.totalRequests` counts it. Callers that need a non-`wp/v2` namespace
+`WordPressAPIError` before `fetch` runs or `stats.totalRequests` counts it. `CachedWordPressClient.buildRequestUrl()` runs the
+same check before the cache lookup, because cache keys drop the host and a hit never reaches `requestRaw()`. Callers that need a non-`wp/v2` namespace
 build the URL from `client.getSiteUrl()` (e.g. `${client.getSiteUrl()}/wp-json/<ns>/...`), never from tool input or a
 URL WordPress returned. Absolute endpoints keep their query string (re-appended after `validateAndSanitizeUrl`,
 which keeps only origin + path) but lose any fragment. Relative endpoints are unchanged: leading slashes are stripped

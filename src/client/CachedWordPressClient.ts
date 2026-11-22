@@ -3,7 +3,7 @@
  * Extends the base WordPress client with intelligent caching capabilities and performance monitoring
  */
 
-import { WordPressClient } from "./api.js";
+import { WordPressClient, isAbsoluteHttpUrl } from "./api.js";
 import { CacheManager, type CacheStats } from "@/cache/CacheManager.js";
 import { HttpCacheWrapper } from "@/cache/HttpCacheWrapper.js";
 import { CacheInvalidation } from "@/cache/CacheInvalidation.js";
@@ -284,8 +284,10 @@ export class CachedWordPressClient extends WordPressClient {
   }
 
   private buildRequestUrl(endpoint: string): string {
-    if (endpoint.startsWith("http")) {
-      return endpoint;
+    if (isAbsoluteHttpUrl(endpoint)) {
+      // Cache keys drop the host, and a cache hit never reaches requestRaw(), so check the origin
+      // here too or a warm cache would answer an absolute URL on another host.
+      return `${this.validateSiteUrl(endpoint)}${new URL(endpoint).search}`;
     }
 
     const cleanEndpoint = endpoint.replace(/^\/+/, "");
