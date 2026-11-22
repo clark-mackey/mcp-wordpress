@@ -607,6 +607,9 @@ describe("WordPressClient", () => {
       ["a lookalike host suffix", "https://test.example.com.evil.net/wp-json/wp/v2/posts"],
       ["userinfo pointing elsewhere", "https://test.example.com@evil.example.net/wp-json/wp/v2/posts"],
       ["a different port", "https://test.example.com:8443/wp-json/wp/v2/posts"],
+      ["an uppercase scheme", "HTTPS://evil.example.net/wp-json/wp/v2/posts"],
+      ["a mixed-case scheme", "Https://evil.example.net/wp-json/wp/v2/posts"],
+      ["a scheme without slashes", "https:evil.example.net/wp-json/wp/v2/posts"],
     ])("should reject %s without calling fetch", async (_label, endpoint) => {
       const before = client.stats.totalRequests;
 
@@ -615,6 +618,13 @@ describe("WordPressClient", () => {
 
       expect(mockFetch).not.toHaveBeenCalled();
       expect(client.stats.totalRequests).toBe(before);
+    });
+
+    it("should send a same-origin absolute URL with an uppercase scheme to the site, not as a relative path", async () => {
+      await client.get("HTTPS://test.example.com/wp-json/seopress/v1/posts/1");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe("https://test.example.com/wp-json/seopress/v1/posts/1");
     });
 
     it("should reject an http:// downgrade of the site host when insecure HTTP is allowed", async () => {

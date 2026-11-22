@@ -198,6 +198,17 @@ describe("CachedWordPressClient", () => {
       expect(result1).toEqual(result2);
     });
 
+    it.each([
+      ["another host", "https://evil.example.net/wp-json/wp/v2/posts"],
+      ["an uppercase scheme on another host", "HTTPS://evil.example.net/wp-json/wp/v2/posts"],
+    ])("should reject an absolute GET to %s even when the cache is warm", async (_label, endpoint) => {
+      vi.clearAllMocks();
+      await cachedClient.request("GET", "posts");
+
+      await expect(cachedClient.request("GET", endpoint)).rejects.toThrow(/configured site origin/);
+      expect(WordPressClient.prototype.requestWithMetadata).toHaveBeenCalledTimes(1);
+    });
+
     it("should not cache non-GET requests", async () => {
       const postData = { title: "New Post", content: "Post content" };
 

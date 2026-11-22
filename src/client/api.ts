@@ -69,6 +69,11 @@ import { SiteOperations } from "./operations/site.js";
 
 /** Header the companion mu-plugin reads when the host strips Authorization. Keep in step with bin/connect.js. */
 export const AUTH_FALLBACK_HEADER = "X-MCP-WP-Auth";
+/**
+ * True when the endpoint carries an http(s) scheme. Schemes are case-insensitive (RFC 3986), and WHATWG URL parsing
+ * accepts `https:host` without slashes, so a plain `startsWith("http")` would misroute `HTTPS://...` as a relative path.
+ */
+export const isAbsoluteHttpUrl = (endpoint: string): boolean => /^https?:/i.test(endpoint);
 /** Credential headers fetch would forward on a cross-origin redirect (it strips only Authorization). */
 const REDIRECT_UNSAFE_AUTH_HEADERS = new Set([AUTH_FALLBACK_HEADER, "X-API-Key", "X-WP-Nonce"].map((h) => h.toLowerCase()));
 
@@ -303,7 +308,7 @@ export class WordPressClient implements IWordPressClient {
    * so besides the SSRF guard the URL must have the configured site's exact origin
    * (protocol, host and port; www and non-www differ).
    */
-  private validateSiteUrl(endpoint: string): string {
+  protected validateSiteUrl(endpoint: string): string {
     const url = this.validateAndSanitizeUrl(endpoint);
     const requested = new URL(url).origin;
     const site = new URL(this.baseUrl).origin;
@@ -611,7 +616,7 @@ export class WordPressClient implements IWordPressClient {
     const cleanEndpoint = endpoint.replace(/^\/+/, "");
     // Absolute URLs pass the SSRF guard and must match the site origin; keep their query
     // string: plugin REST routes outside /wp/v2 (e.g. redirection/v1) take list filters there.
-    const url = endpoint.startsWith("http")
+    const url = isAbsoluteHttpUrl(endpoint)
       ? `${this.validateSiteUrl(endpoint)}${new URL(endpoint).search}`
       : `${this.apiUrl}/${cleanEndpoint}`;
 
