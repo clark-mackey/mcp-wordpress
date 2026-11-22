@@ -69,6 +69,8 @@ import { SiteOperations } from "./operations/site.js";
 
 /** Header the companion mu-plugin reads when the host strips Authorization. Keep in step with bin/connect.js. */
 export const AUTH_FALLBACK_HEADER = "X-MCP-WP-Auth";
+/** Credential headers fetch would forward on a cross-origin redirect (it strips only Authorization). */
+const REDIRECT_UNSAFE_AUTH_HEADERS = new Set([AUTH_FALLBACK_HEADER, "X-API-Key", "X-WP-Nonce"].map((h) => h.toLowerCase()));
 
 /**
  * WordPress REST API Client
@@ -510,6 +512,8 @@ export class WordPressClient implements IWordPressClient {
     try {
       const response = await fetch(`${this.baseUrl}/wp-json/jwt-auth/v1/token`, {
         method: "POST",
+        // A 307/308 would resend the username and password to the redirect target.
+        redirect: "error",
         headers: {
           "Content-Type": "application/json",
         },
@@ -611,9 +615,13 @@ export class WordPressClient implements IWordPressClient {
     };
 
     this.addAuthHeaders(baseHeaders);
-    // fetch strips Authorization on a cross-origin redirect but forwards custom headers, so with
-    // the fallback header on, a redirect would hand the app password to the redirect target.
-    const blockRedirects = AUTH_FALLBACK_HEADER in baseHeaders;
+    // fetch strips Authorization on a cross-origin redirect but forwards custom headers, so any
+    // credential carried in a custom header (fallback auth, API key, nonce) would reach the
+    // redirect target. Refuse redirects whenever one is present (header names are case-insensitive,
+    // and callers may pass their own via options.headers).
+    // ponytail: refuses same-origin redirects too; following same-origin hops manually is the upgrade
+    // if a host's trailing-slash or canonical redirect ever breaks API-key or cookie auth.
+    const blockRedirects = Object.keys(baseHeaders).some((name) => REDIRECT_UNSAFE_AUTH_HEADERS.has(name.toLowerCase()));
 
     const requestTimeout = options.timeout || this.timeout;
     const configuredRetries =
